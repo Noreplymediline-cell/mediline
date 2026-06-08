@@ -1262,32 +1262,56 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
 
     // ── LOG DIAGNOSTIC MÉDECIN ─────────────────────────────────────────
     var _authUser = window.fbAuth && window.fbAuth.currentUser;
-    console.group('[ML LOGIN] Diagnostic accès');
-    console.log('uid             :', uid);
-    console.log('email           :', _authUser && _authUser.email || userData.mail || userData.email || '?');
-    console.log('role            :', userData.role);
-    console.log('subscriptionStatus:', userData.subscriptionStatus);
-    console.log('hasPaid         :', userData.hasPaid);
-    console.log('isFounder       :', userData.isFounder);
-    console.log('billingOwner    :', userData.billingOwner);
-    console.log('invitedBy       :', userData.invitedBy);
-    console.log('addedBy         :', userData.addedBy);
-    console.log('cabinetId (résolu):', cabinetId);
-    console.log('cabinetData     :', cabinetData);
-    console.log('owner subStatus :', cabinetData && cabinetData.subscriptionStatus);
-    console.log('owner hasPaid   :', cabinetData && cabinetData.hasPaid);
-    console.log('owner trialStart:', cabinetData && cabinetData.trialStart);
+    var _ownerUidLog = userData.billingOwner || userData.invitedBy || userData.addedBy || null;
+    // Fetch ownerData depuis Firebase pour avoir les champs réels (pas seulement le cabinet)
+    var _ownerDataLog = null;
+    if (_ownerUidLog && _ownerUidLog !== uid) {
+      try { _ownerDataLog = await fbGetUserByUid(_ownerUidLog).catch(function(){ return null; }); } catch(_e) {}
+    }
+    console.group('%c[ML LOGIN] Diagnostic accès', 'color:blue;font-weight:bold');
+    console.log('uid                :', uid);
+    console.log('email              :', (_authUser && _authUser.email) || userData.mail || userData.email || '?');
+    console.log('── userData complet ──────────────────────────');
+    console.log(JSON.parse(JSON.stringify(userData)));
+    console.log('role               :', userData.role);
+    console.log('hasPaid            :', userData.hasPaid);
+    console.log('subscriptionStatus :', userData.subscriptionStatus);
+    console.log('isFounder          :', userData.isFounder);
+    console.log('billingOwner       :', userData.billingOwner);
+    console.log('invitedBy          :', userData.invitedBy);
+    console.log('addedBy            :', userData.addedBy);
+    console.log('cabinetId          :', userData.cabinetId);
+    console.log('cabinetCode        :', userData.cabinetCode);
+    console.log('── ownerUid détecté ──────────────────────────');
+    console.log('ownerUid           :', _ownerUidLog || '(même uid = owner)');
+    console.log('cabinetId résolu   :', cabinetId);
+    console.log('── ownerData (Firebase users/{ownerUid}) ─────');
+    console.log(_ownerDataLog ? JSON.parse(JSON.stringify(_ownerDataLog)) : '(non récupéré ou même compte)');
+    console.log('owner hasPaid      :', _ownerDataLog && _ownerDataLog.hasPaid);
+    console.log('owner subStatus    :', _ownerDataLog && _ownerDataLog.subscriptionStatus);
+    console.log('owner trialStart   :', _ownerDataLog && _ownerDataLog.trialStart);
+    console.log('── cabinetData (cabinets/{ownerUid}) ─────────');
+    console.log(cabinetData ? JSON.parse(JSON.stringify(cabinetData)) : null);
+    console.log('cabinet subStatus  :', cabinetData && cabinetData.subscriptionStatus);
+    console.log('cabinet hasPaid    :', cabinetData && cabinetData.hasPaid);
+    console.log('cabinet trialStart :', cabinetData && cabinetData.trialStart);
     // ──────────────────────────────────────────────────────────────────
 
     var hasAccess = userData.hasPaid || userData.isFounder || userData.addedBy;
+    var _hasAccessReason = userData.hasPaid ? 'hasPaid' : userData.isFounder ? 'isFounder' : userData.addedBy ? 'addedBy' : 'aucun';
     if (!hasAccess && cabinetData && cabinetData.trialStart) {
       hasAccess = (Date.now() - cabinetData.trialStart) < 30 * 24 * 3600 * 1000;
+      if (hasAccess) _hasAccessReason = 'cabinet.trialStart (en cours)';
     }
     if (!hasAccess && userData.trialStart) {
       hasAccess = Date.now() < userData.trialStart + 30 * 24 * 3600 * 1000;
+      if (hasAccess) _hasAccessReason = 'userData.trialStart (en cours)';
     }
 
-    console.log('hasAccess (proceedSession):', hasAccess);
+    console.log('── résultat ─────────────────────────────────');
+    console.log('hasAccess          :', hasAccess);
+    console.log('raison hasAccess   :', _hasAccessReason);
+    if (!hasAccess) console.error('[ML LOGIN] REFUS – le compte n\'a pas accès. Aucune condition satisfaite.');
     console.groupEnd();
 
     if (!hasAccess) return;
@@ -4601,7 +4625,51 @@ function docLogout() {
 // ── Affiche le paywall avec le bon message selon le contexte ─────────
 function showPaywall(mode) {
   // mode: 'new' (jamais payé) | 'expired' (essai terminé)
-  console.error('[ML PAYWALL] showPaywall("' + mode + '") appelé depuis :', new Error().stack);
+  try {
+    var _uid  = (typeof docCurrentUser !== 'undefined' ? docCurrentUser : null) || '(null)';
+    var _auth = window.fbAuth && window.fbAuth.currentUser;
+    var _usersLS   = JSON.parse(localStorage.getItem('users')    || '{}');
+    var _cabinetsLS = JSON.parse(localStorage.getItem('cabinets') || '{}');
+    var _u    = _usersLS[_uid] || null;
+    var _ownerUid = (_u && (_u.billingOwner || _u.invitedBy || _u.addedBy)) || '?';
+    var _ownerData = _usersLS[_ownerUid] || null;
+    var _cabData   = _cabinetsLS[_ownerUid] || _cabinetsLS[_uid] || null;
+    console.error('╔══════════════════════════════════════════════╗');
+    console.error('║  [ML PAYWALL] showPaywall("' + mode + '")');
+    console.error('╚══════════════════════════════════════════════╝');
+    console.error('[ML PAYWALL] uid actuel       :', _uid);
+    console.error('[ML PAYWALL] email (Auth)     :', _auth ? _auth.email : '(non Auth)');
+    console.error('[ML PAYWALL] ── userData complet ──────────────');
+    console.error(JSON.stringify(_u, null, 2));
+    console.error('[ML PAYWALL] role             :', _u && _u.role);
+    console.error('[ML PAYWALL] hasPaid          :', _u && _u.hasPaid);
+    console.error('[ML PAYWALL] subscriptionStatus:', _u && _u.subscriptionStatus);
+    console.error('[ML PAYWALL] billingOwner     :', _u && _u.billingOwner);
+    console.error('[ML PAYWALL] invitedBy        :', _u && _u.invitedBy);
+    console.error('[ML PAYWALL] addedBy          :', _u && _u.addedBy);
+    console.error('[ML PAYWALL] cabinetId        :', _u && _u.cabinetId);
+    console.error('[ML PAYWALL] cabinetCode      :', _u && _u.cabinetCode);
+    console.error('[ML PAYWALL] ── ownerUid détecté ─────────────');
+    console.error('[ML PAYWALL] ownerUid         :', _ownerUid);
+    console.error('[ML PAYWALL] ── ownerData (users cache) ───────');
+    console.error(JSON.stringify(_ownerData, null, 2));
+    if (_ownerData) {
+      console.error('[ML PAYWALL] owner hasPaid    :', _ownerData.hasPaid);
+      console.error('[ML PAYWALL] owner subStatus  :', _ownerData.subscriptionStatus);
+      console.error('[ML PAYWALL] owner trialStart :', _ownerData.trialStart);
+      console.error('[ML PAYWALL] owner isFounder  :', _ownerData.isFounder);
+    }
+    console.error('[ML PAYWALL] ── cabinetData (cabinets cache) ──');
+    console.error(JSON.stringify(_cabData, null, 2));
+    if (_cabData) {
+      console.error('[ML PAYWALL] cabinet subStatus:', _cabData.subscriptionStatus);
+      console.error('[ML PAYWALL] cabinet trialStart:', _cabData.trialStart);
+      console.error('[ML PAYWALL] cabinet hasPaid  :', _cabData.hasPaid);
+    }
+    console.error('[ML PAYWALL] ── Stack trace ─────────────────');
+    console.error(new Error('[ML PAYWALL] origine').stack);
+    console.error('══════════════════════════════════════════════');
+  } catch(_e) { console.error('[ML PAYWALL] Erreur dump logs:', _e); }
   const overlay = document.getElementById('paywallOverlay');
   const cardNew = document.getElementById('paywallCardNew');
   const cardExp = document.getElementById('paywallCardExpired');
