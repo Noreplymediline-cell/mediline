@@ -3033,11 +3033,13 @@ async function mlAddDoctorToCabinet(ownerUid, doctorData) {
     cabinetCode: ownerUid,
     googleLink: '',
     hasPaid: true,
-    subscriptionStatus: subscriptionStatus || 'active',
+    subscriptionStatus: 'included_by_invitation',
     addedBy: ownerUid,
+    invitedBy: ownerUid,
+    billingOwner: ownerUid,
     addedAt: Date.now(),
     specialty: specialty || '',
-    role: 'doctor'
+    role: 'invited_doctor'
   };
   await fbSetUserByUid(doctorUid, record);
   await fbSetCabinetDoctor(ownerUid, doctorUid, {
@@ -4116,16 +4118,16 @@ function copyLink() {
 
 function docLoad() {
   // ══════════════════════════════════════════════════════════════
-  //  SOURCE UNIQUE DE VÉRITÉ : Firebase users/{ownerUid}/queue
-  //  Pour médecin invité : ownerUid = billingOwner du owner principal.
-  //  Pour médecin principal : ownerUid = docCurrentUser.
+  //  SOURCE UNIQUE DE VÉRITÉ : Firebase users/{doctorId}/queue
+  //  Chaque médecin (principal ou invité) a sa PROPRE file d'attente.
+  //  ownerUid est conservé pour la facturation/cabinet uniquement.
   // ══════════════════════════════════════════════════════════════
   const doctorId = docCurrentUser;
-  // Résoudre ownerUid : médecin invité lit la queue du owner principal
+  // Résoudre ownerUid (pour la facturation/cabinet) — mais la queue est propre à chaque médecin
   var _ud = window._lastDocData || JSON.parse(localStorage.getItem('users') || '{}')[doctorId] || null;
   var _ownerUid = (_ud && (_ud.billingOwner || _ud.invitedBy || _ud.addedBy)) || doctorId;
   window._mlOwnerUid = _ownerUid;
-  var _queueUid = _ownerUid; // toujours lire/écrire sur le owner
+  var _queueUid = doctorId; // chaque médecin a sa propre file d'attente indépendante
 
   console.log("DOCTOR_LOGIN_UID", doctorId, "| QUEUE_OWNER", _queueUid);
   console.log("DOCTOR_QUEUE_PATH", "users/" + _queueUid + "/queue");
@@ -4304,11 +4306,9 @@ function docSave(writeStartedAt) {
     localStorage.setItem(docCurrentUser + '_totalMinutes', total);
   }
 
-  // Sync queue vers Firebase — écriture ciblée sur users/{docCurrentUser} UNIQUEMENT
-  // → Aucune race condition entre médecins connectés simultanément
-  // Résoudre ownerUid pour écriture queue (invité écrit sur le queue du owner)
-  var _dsSaveUd = window._lastDocData || JSON.parse(localStorage.getItem('users') || '{}')[docCurrentUser] || null;
-  var _dsSaveOwner = (_dsSaveUd && (_dsSaveUd.billingOwner || _dsSaveUd.invitedBy || _dsSaveUd.addedBy)) || docCurrentUser;
+  // Sync queue vers Firebase — écriture sur users/{docCurrentUser} (file propre à ce médecin)
+  // Chaque médecin (principal ou invité) écrit sur son propre nœud — pas de partage de file.
+  var _dsSaveOwner = docCurrentUser; // file d'attente indépendante par médecin
   const queueData = { p: docPatients, r: docRetard, ts, total, totalMinutes: total, startedAt, updatedAt: ts };
   console.log('MEDECIN_FIREBASE_QUEUE', { uid: docCurrentUser, ownerUid: _dsSaveOwner, writeStartedAt, queueData });
   console.log('TEMPS_AFFICHE_MEDECIN', total, '| startedAt:', startedAt);
@@ -8126,11 +8126,9 @@ function mlKeepAlive() {
   }
 
   function getActivePatients(docId) {
-    // Résoudre ownerUid → cache indexé sous ownerUid
+    // Chaque médecin a son propre cache de patients — pas de redirection vers ownerUid
     var _rawGa = docId || normalizeDoctorId(docCurrentUser);
-    var _udGa = window._lastDocData || JSON.parse(localStorage.getItem('users') || '{}')[_rawGa] || null;
-    var _ownerGa = (_udGa && (_udGa.billingOwner || _udGa.invitedBy || _udGa.addedBy || _udGa.ownerUid)) || _rawGa;
-    return sortPatients(Object.values(ML.patientsCache[_ownerGa] || ML.patientsCache[_rawGa] || {}).filter(isWaitingPatient));
+    return sortPatients(Object.values(ML.patientsCache[_rawGa] || {}).filter(isWaitingPatient));
   }
 
   function computeDoctorTotal(count, retard) {
@@ -8260,42 +8258,42 @@ function mlKeepAlive() {
     if (!docId) return;
     docCurrentUser = docId;
 
-    // Résoudre ownerUid : médecin invité doit écouter la queue du owner
+    // Mémoriser ownerUid pour la facturation/cabinet — mais la file est propre à docId
     var _ud = window._lastDocData || JSON.parse(localStorage.getItem('users') || '{}')[docId] || null;
     var ownerUid = (_ud && (_ud.billingOwner || _ud.invitedBy || _ud.addedBy || _ud.ownerUid)) || docId;
     window._mlOwnerUid = ownerUid;
 
     console.log('CURRENT UID', docId);
     console.log('OWNER UID', ownerUid);
-    console.log('READ PATH', 'users/' + ownerUid + '/queue');
-    console.log('READ PATH', 'namedPatients/' + ownerUid);
+    console.log('READ PATH', 'users/' + docId + '/queue');
+    console.log('READ PATH', 'namedPatients/' + docId);
 
     try { if (ML.doctorPatientsRef) ML.doctorPatientsRef.off(); } catch(e){}
     try { if (ML.doctorQueueRef) ML.doctorQueueRef.off(); } catch(e){}
     ML.doctorPatientsRef = null;
     ML.doctorQueueRef = null;
 
-    ML.log('dashboard écoute', 'namedPatients/' + ownerUid, 'users/' + ownerUid + '/queue');
+    ML.log('dashboard écoute', 'namedPatients/' + docId, 'users/' + docId + '/queue');
 
-    ML.doctorQueueRef = db().ref('users/' + ownerUid + '/queue');
+    ML.doctorQueueRef = db().ref('users/' + docId + '/queue');
     ML.doctorQueueRef.on('value', function(snap){
       if (ML._localActionLock && Date.now() < ML._localActionLock) { return; }
-      ML.queueCache[ownerUid] = snap.exists() ? (snap.val() || {}) : { p:0, r:0, totalMinutes:0, startedAt:Date.now() };
-      updateDoctorDOM(ownerUid);
+      ML.queueCache[docId] = snap.exists() ? (snap.val() || {}) : { p:0, r:0, totalMinutes:0, startedAt:Date.now() };
+      updateDoctorDOM(docId);
     }, function(err){
-      console.error('PERMISSION_DENIED path=users/'+ownerUid+'/queue uid='+docId+' ownerUid='+ownerUid+' role='+(_ud&&_ud.role||'?'), err.code, err.message);
+      console.error('PERMISSION_DENIED path=users/'+docId+'/queue uid='+docId+' ownerUid='+ownerUid+' role='+(_ud&&_ud.role||'?'), err.code, err.message);
       ML.warn('listener queue dashboard', err);
     });
 
-    ML.doctorPatientsRef = db().ref('namedPatients/' + ownerUid);
+    ML.doctorPatientsRef = db().ref('namedPatients/' + docId);
     ML.doctorPatientsRef.on('value', function(snap){
-      ML.patientsCache[ownerUid] = snap.exists() ? (snap.val() || {}) : {};
-      var active = getActivePatients(ownerUid);
+      ML.patientsCache[docId] = snap.exists() ? (snap.val() || {}) : {};
+      var active = getActivePatients(docId);
       try { window._patientCacheForDoctor = active; } catch(e) {}
-      try { localStorage.setItem('namedPatients_' + ownerUid, JSON.stringify(active)); } catch(e) {}
-      updateDoctorDOM(ownerUid);
+      try { localStorage.setItem('namedPatients_' + docId, JSON.stringify(active)); } catch(e) {}
+      updateDoctorDOM(docId);
     }, function(err){
-      console.error('PERMISSION_DENIED path=namedPatients/'+ownerUid+' uid='+docId+' ownerUid='+ownerUid+' role='+(_ud&&_ud.role||'?'), err.code, err.message);
+      console.error('PERMISSION_DENIED path=namedPatients/'+docId+' uid='+docId+' ownerUid='+ownerUid+' role='+(_ud&&_ud.role||'?'), err.code, err.message);
       ML.warn('listener patients dashboard', err);
     });
   };
@@ -8313,10 +8311,9 @@ function mlKeepAlive() {
   window.docSave = function(writeStartedAt) {
     var _rawDocId = normalizeDoctorId(docCurrentUser);
     if (!_rawDocId) return;
-    // Résoudre ownerUid : médecin invité écrit sur la queue du owner principal
-    var _ud8 = window._lastDocData || JSON.parse(localStorage.getItem('users') || '{}')[_rawDocId] || null;
-    var docId = (_ud8 && (_ud8.billingOwner || _ud8.invitedBy || _ud8.addedBy || _ud8.ownerUid)) || _rawDocId;
-    console.log('CURRENT UID', _rawDocId, '| OWNER UID', docId, '| role', (_ud8 && _ud8.role) || '?');
+    // Chaque médecin écrit sur sa propre file — pas de redirection vers le owner
+    var docId = _rawDocId;
+    console.log('CURRENT UID', _rawDocId, '| WRITE UID', docId);
     console.log('WRITE PATH', 'users/' + docId + '/queue');
     var count = Number(docPatients || 0);
     var retard = Number(docRetard || 0);
@@ -8348,8 +8345,7 @@ function mlKeepAlive() {
 
   window.docUpdate = function() {
     var _rawId = normalizeDoctorId(docCurrentUser);
-    var _udU = window._lastDocData || JSON.parse(localStorage.getItem('users') || '{}')[_rawId] || null;
-    var docId = (_udU && (_udU.billingOwner || _udU.invitedBy || _udU.addedBy || _udU.ownerUid)) || _rawId;
+    var docId = _rawId; // chaque médecin affiche sa propre file d'attente
     var total = computeDoctorTotal(Number(docPatients || 0), Number(docRetard || 0));
     var attente = document.getElementById('attente');
     var patientsEl = document.getElementById('patientsEl');
@@ -10554,12 +10550,14 @@ window.checkPromo = function() {
   };
 
   /* ══════════════════════════════════════════════════════
-     docSave — écrit TOUJOURS sur users/{ownerUid}/queue
-     (médecin invité → queue du owner principal)
+     docSave — écrit sur users/{doctorUid}/queue (file propre)
+     Chaque médecin a sa propre file d'attente indépendante.
   ══════════════════════════════════════════════════════ */
   window.docSave = async function(writeStartedAt){
     try{
-      var owner=await resolveOwner();
+      // Chaque médecin (principal ou invité) écrit sur sa PROPRE file d'attente
+      var u=await waitAuth();
+      var owner=(u&&u.uid)||window.docCurrentUser||null;
       if(!owner) return;
       var p=Math.max(0,Number(window.docPatients||0));
       var r=Math.max(0,Number(window.docRetard||0));
@@ -10584,11 +10582,13 @@ window.checkPromo = function() {
   };
 
   /* ══════════════════════════════════════════════════════
-     namedPatientAction — patients sur users/{ownerUid}
+     namedPatientAction — patients sur users/{docUid} (file propre)
   ══════════════════════════════════════════════════════ */
   window.namedPatientAction = async function(patId,action){
     try{
-      var owner=await resolveOwner();
+      // Utiliser l'UID du médecin connecté — pas de redirection vers le owner
+      var u=await waitAuth();
+      var owner=(u&&u.uid)||window.docCurrentUser||null;
       if(!owner||!patId) return;
       var patRef=db().ref('namedPatients/'+owner+'/'+patId);
       if(action==='passed'){
