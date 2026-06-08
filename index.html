@@ -2681,8 +2681,10 @@ function canAddDoctorToCabinet(code) {
   const current = countDoctorsInCabinet(code);
   const trial = getCabinetTrialStatus(code);
   const hasPaidSub = cab.subscriptionStatus === 'active';
+  // subscriptionStatus:'trial' = compte créé mais pas encore payé → essai actif par définition
+  const isTrialStatus = cab.subscriptionStatus === 'trial';
 
-  // ── Essai actif → accès Pro complet (médecins illimités) ──────────────
+  // ── Essai actif (trialStart présent) → accès Pro complet ─────────────
   if (trial.inTrial && !hasPaidSub) {
     return {
       allowed: true, current, max: 'illimité',
@@ -2691,7 +2693,16 @@ function canAddDoctorToCabinet(code) {
     };
   }
 
-  // ── Essai expiré sans abonnement actif → blocage avec invitation ──────
+  // ── subscriptionStatus:'trial' sans trialStart → traiter comme essai actif ──
+  if (isTrialStatus && !trial.expired) {
+    return {
+      allowed: true, current, max: 'illimité',
+      plan: 'cabinet_90', planName: 'Cabinet Pro (essai)',
+      trialActive: true
+    };
+  }
+
+  // ── Essai expiré sans abonnement actif → blocage ──────────────────────
   if (trial.expired && !hasPaidSub) {
     return {
       allowed: false,
@@ -2700,9 +2711,19 @@ function canAddDoctorToCabinet(code) {
     };
   }
 
-  // ── Abonnement actif → vérification selon le plan souscrit ───────────
+  // ── hasPaid/isFounder sur l'utilisateur owner → autoriser même si cabinet pas 'active' ──
   if (!hasPaidSub) {
-    return { allowed: false, reason: 'L\'abonnement de ce cabinet est inactif ou impayé. Le responsable doit renouveler son abonnement avant d\'ajouter de nouveaux médecins.' };
+    var _usersForCheck = {};
+    try { _usersForCheck = JSON.parse(localStorage.getItem('users')) || {}; } catch(e) {}
+    var _ownerUser = _usersForCheck[code];
+    if (_ownerUser && (_ownerUser.hasPaid || _ownerUser.isFounder || _ownerUser.subscriptionStatus === 'active')) {
+      return { allowed: true, current, max: 'illimité', plan: 'cabinet_90', planName: 'Cabinet Pro', hasPaidOverride: true };
+    }
+    return {
+      allowed: false,
+      reason: 'L\'abonnement de ce cabinet est inactif ou impayé.',
+      subscriptionExpired: true, current, max: 0, plan: null, planName: null
+    };
   }
 
   const plan = cab.plan || 'cabinet_40';
@@ -7227,11 +7248,20 @@ async function dmRenderPlanInfo() {
   }
   const info = canAddDoctorToCabinet(cabinetId);
   const trial = getCabinetTrialStatus(cabinetId);
-  let msg = '', cls = '';
-  if (trial.inTrial) {
-    msg = '🎁 Essai gratuit · Accès Pro complet · médecins illimités (' + trial.daysLeft + ' j restants)';
+
+  // ── Override : hasPaid ou isFounder débloquent toujours l'ajout ──────
+  if (!info.allowed && (u.hasPaid || u.isFounder || u.subscriptionStatus === 'active')) {
+    info.allowed = true;
+    info.max = 'illimité';
+    info.hasPaidOverride = true;
+  }
+
+  let msg = '', cls = '', renewBtn = '';
+  if (trial.inTrial || info.trialActive) {
+    const daysLeft = trial.daysLeft || '—';
+    msg = '🎁 Essai gratuit · Accès Pro complet · médecins illimités' + (trial.daysLeft ? ' (' + daysLeft + ' j restants)' : '');
     cls = '';
-  } else if (info.max === 'illimité' || info.max === 'unlimited') {
+  } else if (info.hasPaidOverride || info.max === 'illimité' || info.max === 'unlimited') {
     msg = '✅ Cabinet Pro · Médecins illimités';
     cls = '';
   } else if (typeof info.max === 'number') {
@@ -7249,8 +7279,12 @@ async function dmRenderPlanInfo() {
   } else if (!info.allowed) {
     msg = '🔒 ' + (info.reason || 'Abonnement requis pour ajouter des médecins.');
     cls = 'danger';
+    // Bouton renouvellement si essai ou abonnement expiré
+    if (info.trialExpired || info.subscriptionExpired) {
+      renewBtn = ' <button onclick="showPaywall(\'expired\')" style="margin-left:10px;padding:4px 12px;border-radius:7px;border:none;background:var(--blue);color:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:\'Outfit\',sans-serif">Renouveler l\'abonnement →</button>';
+    }
   }
-  el.textContent = msg;
+  el.innerHTML = msg + renewBtn;
   el.className = 'dm-plan-info' + (cls ? ' ' + cls : '');
 
   const addBtn = document.getElementById('dmAddBtn');
@@ -7334,6 +7368,8 @@ async function dmAddDoctor() {
 
     // ── 2. Vérification quota ────────────────────────────────────────────
     const isFounderOrUnlimited = currentUserData.isFounder
+      || currentUserData.hasPaid
+      || currentUserData.subscriptionStatus === 'active'
       || currentUserData.maxDoctors === 'unlimited'
       || currentUserData.maxDoctors === Infinity;
 
