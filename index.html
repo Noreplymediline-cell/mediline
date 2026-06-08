@@ -1259,6 +1259,26 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
     console.log('[ML DEBUG] cabinetData (proc):', cabinetData);
 
     if (userData.disabled) return; // compte désactivé → refus silencieux
+
+    // ── LOG DIAGNOSTIC MÉDECIN ─────────────────────────────────────────
+    var _authUser = window.fbAuth && window.fbAuth.currentUser;
+    console.group('[ML LOGIN] Diagnostic accès');
+    console.log('uid             :', uid);
+    console.log('email           :', _authUser && _authUser.email || userData.mail || userData.email || '?');
+    console.log('role            :', userData.role);
+    console.log('subscriptionStatus:', userData.subscriptionStatus);
+    console.log('hasPaid         :', userData.hasPaid);
+    console.log('isFounder       :', userData.isFounder);
+    console.log('billingOwner    :', userData.billingOwner);
+    console.log('invitedBy       :', userData.invitedBy);
+    console.log('addedBy         :', userData.addedBy);
+    console.log('cabinetId (résolu):', cabinetId);
+    console.log('cabinetData     :', cabinetData);
+    console.log('owner subStatus :', cabinetData && cabinetData.subscriptionStatus);
+    console.log('owner hasPaid   :', cabinetData && cabinetData.hasPaid);
+    console.log('owner trialStart:', cabinetData && cabinetData.trialStart);
+    // ──────────────────────────────────────────────────────────────────
+
     var hasAccess = userData.hasPaid || userData.isFounder || userData.addedBy;
     if (!hasAccess && cabinetData && cabinetData.trialStart) {
       hasAccess = (Date.now() - cabinetData.trialStart) < 30 * 24 * 3600 * 1000;
@@ -1266,6 +1286,10 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
     if (!hasAccess && userData.trialStart) {
       hasAccess = Date.now() < userData.trialStart + 30 * 24 * 3600 * 1000;
     }
+
+    console.log('hasAccess (proceedSession):', hasAccess);
+    console.groupEnd();
+
     if (!hasAccess) return;
 
     if (docCurrentUser) return; // session manuelle déjà active
@@ -4577,6 +4601,7 @@ function docLogout() {
 // ── Affiche le paywall avec le bon message selon le contexte ─────────
 function showPaywall(mode) {
   // mode: 'new' (jamais payé) | 'expired' (essai terminé)
+  console.error('[ML PAYWALL] showPaywall("' + mode + '") appelé depuis :', new Error().stack);
   const overlay = document.getElementById('paywallOverlay');
   const cardNew = document.getElementById('paywallCardNew');
   const cardExp = document.getElementById('paywallCardExpired');
@@ -4633,22 +4658,25 @@ async function checkSessionAccess() {
   // ── 3. Médecin invité : vérifier qu'il existe encore dans le cabinet ──
   if (u.addedBy && cabinetId) {
     try {
-      const doctorEntry = await firebase.database()
-        .ref('cabinets/' + cabinetId + '/doctors/' + docCurrentUser)
-        .get();
+      const _docPath = 'cabinets/' + cabinetId + '/doctors/' + docCurrentUser;
+      console.log('[ML ACCESS] Vérification entrée cabinet:', _docPath);
+      const doctorEntry = await firebase.database().ref(_docPath).get();
+      console.log('[ML ACCESS] Entrée cabinet existe:', doctorEntry.exists(), '| val:', doctorEntry.exists() ? doctorEntry.val() : null);
       if (!doctorEntry.exists()) {
         // Supprimé du cabinet → déconnexion
+        console.warn('[ML ACCESS] Médecin absent du cabinet → déconnexion. billingOwner:', u.billingOwner, '| addedBy:', u.addedBy);
         docLogout();
         showPaywall('new');
         return;
       }
       const dData = doctorEntry.val();
       if (dData.status === 'disabled') {
+        console.warn('[ML ACCESS] Médecin désactivé dans le cabinet.');
         docLogout();
         showPaywall('new');
         return;
       }
-    } catch(e) {}
+    } catch(e) { console.warn('[ML ACCESS] Erreur lecture entrée cabinet:', e); }
   }
 
   // ── 4. Vérifier l'abonnement du cabinet (owner ET médecins invités) ──
