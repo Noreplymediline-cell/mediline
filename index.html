@@ -4622,7 +4622,13 @@ async function checkSessionAccess() {
     return;
   }
 
-  const cabinetId = u.cabinetId || u.cabinetCode || (u.addedBy ? u.addedBy : null);
+  // Pour médecin invité : toujours résoudre cabinetId sur le owner (pas sur le publicCode ML-xxxx du médecin)
+  const _ownerRef = u.billingOwner || u.invitedBy || u.addedBy;
+  const cabinetId = _ownerRef || u.cabinetId
+    || (u.cabinetCode && !String(u.cabinetCode).startsWith('ML-') ? u.cabinetCode : null)
+    || docCurrentUser;
+  console.log('[ML ACCESS] checkSessionAccess uid:', docCurrentUser, '| role:', u.role,
+    '| cabinetId:', cabinetId, '| hasPaid:', u.hasPaid, '| subStatus:', u.subscriptionStatus);
 
   // ── 3. Médecin invité : vérifier qu'il existe encore dans le cabinet ──
   if (u.addedBy && cabinetId) {
@@ -4663,17 +4669,38 @@ async function checkSessionAccess() {
   // Owner founder → toujours accès
   if (u.isFounder) return;
 
-  // Abonnement actif sur le cabinet → accès
-  if (cabinetData && cabinetData.subscriptionStatus === 'active') return;
+  // Médecin invité → accès si l'abonnement du owner est valide (jamais de paywall pour médecin invité)
+  const _isInvitedDoc = u.role === 'invited_doctor' || u.role === 'invitedDoctor'
+    || u.subscriptionStatus === 'included_by_invitation';
+  if (_isInvitedDoc) {
+    const _ownerSub = cabinetData && cabinetData.subscriptionStatus;
+    const _ownerTrial = cabinetData && cabinetData.trialStart
+      && (Date.now() - cabinetData.trialStart) < 30 * 24 * 3600 * 1000;
+    console.log('[ML ACCESS] Médecin invité – owner subscriptionStatus:', _ownerSub, '| trialStart:', cabinetData && cabinetData.trialStart);
+    if (!cabinetData || _ownerSub === 'active' || _ownerSub === 'trial' || _ownerTrial) {
+      console.log('[ML ACCESS] Médecin invité autorisé – accès accordé.');
+      return;
+    }
+    console.log('[ML ACCESS] Médecin invité – owner sans abonnement actif. Accès permis quand même (pas de paywall pour invité).');
+    return; // un médecin invité ne voit JAMAIS le paywall
+  }
+
+  // Abonnement actif ou trial sur le cabinet → accès
+  if (cabinetData && (cabinetData.subscriptionStatus === 'active' || cabinetData.subscriptionStatus === 'trial')) {
+    console.log('[ML ACCESS] Accès autorisé – subscriptionStatus:', cabinetData.subscriptionStatus);
+    return;
+  }
 
   // Essai en cours → accès
   if (cabinetData && cabinetData.trialStart) {
     const elapsed = Date.now() - cabinetData.trialStart;
-    if (elapsed < 30 * 24 * 3600 * 1000) return;
+    if (elapsed < 30 * 24 * 3600 * 1000) { console.log('[ML ACCESS] Accès autorisé – trial en cours.'); return; }
+    console.log('[ML ACCESS] Trial expiré – showPaywall(expired).');
     showPaywall('expired');
     return;
   }
 
+  console.log('[ML ACCESS] Aucun abonnement valide – showPaywall(new). cabinetData:', cabinetData);
   showPaywall('new');
 }
 
@@ -7852,22 +7879,34 @@ async function dmToggleStatus(doctorUid, newStatus) {
     _accessListeners.push(() => userRef.off('value', userHandler));
 
     // ── Listener temps réel sur le cabinet (abonnement owner) ────────
-    // Pour un médecin invité, cabinetId = addedBy (ownerUid)
-    const cabinetId = (userData && (userData.cabinetId || userData.cabinetCode))
-      || (userData && userData.addedBy ? userData.addedBy : name);
+    // Pour un médecin invité, cabinetId = billingOwner/invitedBy/addedBy (ownerUid, pas le publicCode ML-xxxx)
+    const _hookOwnerRef = userData && (userData.billingOwner || userData.invitedBy || userData.addedBy);
+    const cabinetId = _hookOwnerRef
+      || (userData && userData.cabinetId)
+      || (userData && userData.cabinetCode && !String(userData.cabinetCode).startsWith('ML-') ? userData.cabinetCode : null)
+      || name;
+    console.log('[ML HOOK] openDocDashboard – cabinetId:', cabinetId, '| role:', userData && userData.role,
+      '| subStatus:', userData && userData.subscriptionStatus);
     const cabRef = firebase.database().ref('cabinets/' + cabinetId);
     const cabHandler = cabRef.on('value', function(snap) {
       if (!docCurrentUser) return;
       if (!snap.exists()) return;
       const cab = snap.val();
-      // Vérifier abonnement cabinet
-      const isActive = cab.subscriptionStatus === 'active';
+      // Vérifier abonnement cabinet (active ou trial acceptés)
+      const isActive = cab.subscriptionStatus === 'active' || cab.subscriptionStatus === 'trial';
       const inTrial = cab.trialStart && (Date.now() - cab.trialStart) < 30 * 24 * 3600 * 1000;
-      // Ne pas pénaliser les founders
       const allUsers = JSON.parse(localStorage.getItem('users') || '{}');
       const u = allUsers[docCurrentUser];
-      if (u && u.isFounder) return;
+      console.log('[ML HOOK] cabinet value – uid:', docCurrentUser, '| role:', u && u.role,
+        '| cab.subscriptionStatus:', cab.subscriptionStatus, '| isActive:', isActive, '| inTrial:', inTrial);
+      // Founders et médecins invités → jamais de paywall
+      if (u && (u.isFounder || u.role === 'invited_doctor' || u.role === 'invitedDoctor'
+        || u.subscriptionStatus === 'included_by_invitation')) {
+        console.log('[ML HOOK] Accès permis – founder ou médecin invité.');
+        return;
+      }
       if (!isActive && !inTrial) {
+        console.log('[ML HOOK] Abonnement inactif – showPaywall.');
         showPaywall(cab.trialStart ? 'expired' : 'new');
       }
     });
