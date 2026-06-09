@@ -1168,6 +1168,7 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
   auth.onAuthStateChanged(function(user) {
     window._fbAuthReady = true;
     if (!user) return; // non connecté → login manuel
+    if (window._mlRegistering) return; // docRegister en cours — ne pas interférer
 
     var uid = user.uid;
     console.log('UID connecté:', uid);
@@ -3415,6 +3416,7 @@ function generateCode(str) {
 }
 
 async function docRegister() {
+  window._mlRegistering = true;
   try {
   const name      = document.getElementById('regName').value.trim();
   const mail      = document.getElementById('regMail').value.trim();
@@ -3606,6 +3608,8 @@ async function docRegister() {
   } catch(error) {
     console.error('docRegister error:', error);
     docMsg('regMsg', 'Erreur inattendue : ' + (error.message || error), 'error');
+  } finally {
+    window._mlRegistering = false;
   }
 }
 // Exposition globale — indispensable pour onclick="docRegister()" dans le HTML
