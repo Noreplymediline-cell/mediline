@@ -6982,13 +6982,111 @@ async function saveNewPassword() {
     localStorage.setItem('users', JSON.stringify(local));
   }
 
-  // 3. Nettoyer et rediriger
+  // 3. Nettoyer
+  const _wasInvite = pendingResetIsInvite;
   pendingResetName = '';
   pendingResetUserKey = '';
   pendingResetTokenId = null;
   pendingResetIsInvite = false;
-  docMsg('newpassMsg', 'Mot de passe créé ! Vous pouvez maintenant vous connecter avec votre email.', 'success');
 
+  // INVITE FLOW : ouvrir directement le dashboard — jamais docShow('login') ni paywall
+  if (_wasInvite) {
+    // UID final = celui créé par Firebase Auth (fiable) ou fallback resetUid
+    const _finalUid = _newAuthUidFromInvite || resetUid;
+    console.log('[INVITE_FLOW] uid:', _finalUid);
+    console.log('[INVITE_FLOW] email:', resetEmail);
+
+    docMsg('newpassMsg', 'Activation en cours...', '');
+    try {
+      // Relire users/{finalUid} depuis Firebase (source de vérité)
+      let _finalUserData = null;
+      if (typeof fbGetUserByUid === 'function') {
+        _finalUserData = await fbGetUserByUid(_finalUid).catch(() => null);
+      }
+      // Si absent ou champs invité manquants → chercher l'invitation et patcher
+      const _hasInviteFields = _finalUserData && (
+        _finalUserData.billingOwner || _finalUserData.invitedBy || _finalUserData.addedBy
+      );
+      if (!_hasInviteFields) {
+        console.log('[INVITE_FLOW] Champs invité absents — recherche invitation par email:', resetEmail);
+        const _inv = await mlFindInviteByEmail(resetEmail).catch(() => null);
+        console.log('[INVITE_FLOW] inviteFound:', JSON.stringify(_inv));
+        if (_inv && _inv.ownerUid) {
+          const _ownerUid = _inv.ownerUid;
+          const _invDoc = _inv.doctor || {};
+          const _patch = {
+            uid: _finalUid,
+            firebaseUid: _finalUid,
+            mail: resetEmail,
+            email: resetEmail,
+            name: _invDoc.name || (_finalUserData && _finalUserData.name) || resetEmail.split('@')[0],
+            displayName: _invDoc.name || (_finalUserData && _finalUserData.displayName) || resetEmail.split('@')[0],
+            specialty: _invDoc.specialty || (_finalUserData && _finalUserData.specialty) || '',
+            role: 'invited_doctor',
+            hasPaid: true,
+            subscriptionStatus: 'included_by_invitation',
+            billingOwner: _ownerUid,
+            invitedBy: _ownerUid,
+            addedBy: _ownerUid,
+            cabinetId: _ownerUid,
+            ownerUid: _ownerUid,
+            invitationPending: false,
+            invitationActivatedAt: Date.now(),
+            passwordCreatedAt: Date.now()
+          };
+          // Écrire dans Firebase
+          if (typeof fbSetUserByUid === 'function') {
+            await fbSetUserByUid(_finalUid, _patch).catch(() => {});
+          } else if (typeof fbUpdateUserByUid === 'function') {
+            await fbUpdateUserByUid(_finalUid, _patch).catch(() => {});
+          }
+          // Activer l'entrée cabinet
+          if (_inv.inviteUid) {
+            await fbSetCabinetDoctor(_ownerUid, _inv.inviteUid, Object.assign({}, _invDoc, {
+              uid: _finalUid, authUid: _finalUid, firebaseUid: _finalUid,
+              role: 'invited_doctor', hasPaid: true,
+              subscriptionStatus: 'included_by_invitation',
+              billingOwner: _ownerUid, invitedBy: _ownerUid, addedBy: _ownerUid,
+              status: 'active', active: true, invitationPending: false,
+              activatedAt: Date.now()
+            })).catch(() => {});
+          }
+          _finalUserData = _patch;
+        }
+      }
+      // Mettre à jour cache localStorage
+      try {
+        const _lc = JSON.parse(localStorage.getItem('users') || '{}');
+        _lc[_finalUid] = Object.assign(_lc[_finalUid] || {}, _finalUserData || {});
+        localStorage.setItem('users', JSON.stringify(_lc));
+      } catch(_e) {}
+
+      console.log('[INVITE_FLOW] userDataAfterPatch:', JSON.stringify(_finalUserData));
+
+      // Enregistrer la session
+      docCurrentUser = _finalUid;
+      localStorage.setItem('ml_session', _finalUid);
+      if (typeof mlStartInactivity === 'function') mlStartInactivity();
+
+      // Ouvrir le dashboard directement — jamais showPaywall ni docShow('login')
+      docMsg('newpassMsg', 'Bienvenue !', 'success');
+      console.log('[INVITE_FLOW] openDashboardCalled uid:', _finalUid);
+      setTimeout(() => { openDocDashboard(_finalUid, _finalUserData || {}); }, 300);
+    } catch(_flowErr) {
+      console.error('[INVITE_FLOW] Erreur flow:', _flowErr);
+      // Fallback : login pré-rempli (jamais paywall)
+      docMsg('newpassMsg', 'Compte activé. Connectez-vous.', 'success');
+      setTimeout(() => {
+        const _li = document.getElementById('loginName');
+        if (_li) _li.value = resetEmail;
+        docShow('login');
+      }, 1200);
+    }
+    return;
+  }
+
+  // Flow reset mot de passe normal (non-invite)
+  docMsg('newpassMsg', 'Mot de passe mis à jour !', 'success');
   setTimeout(() => {
     const emailToFill = resetEmail || (updatedUser && updatedUser.mail) || '';
     const loginInp = document.getElementById('loginName');
