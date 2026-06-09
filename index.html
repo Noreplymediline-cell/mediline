@@ -8168,7 +8168,16 @@ async function dmLoadAndRender() {
   try {
     const doctors = await fbGetCabinetDoctors(cabinetId);
     console.log('[ML DEBUG] doctors loaded:', doctors);
-    const entries = Object.values(doctors || {}).sort((a,b) => (a.addedAt||0) - (b.addedAt||0));
+    const _ownerEmailForFilter = ((fbAuth.currentUser && fbAuth.currentUser.email) || '').toLowerCase();
+    const entries = Object.values(doctors || {})
+      .filter(d => {
+        // Ne jamais afficher le médecin principal dans sa propre liste
+        if ((d.uid || d.id || '') === docCurrentUser) return false;
+        const de = (d.email || d.mail || '').trim().toLowerCase();
+        if (_ownerEmailForFilter && de && de === _ownerEmailForFilter) return false;
+        return true;
+      })
+      .sort((a,b) => (a.addedAt||0) - (b.addedAt||0));
     if (!entries.length) {
       listEl.innerHTML = '<div class="dm-empty">Aucun médecin invité pour l\'instant.<br><span style="font-size:11px">Utilisez le bouton ci-dessus pour inviter un confrère.</span></div>';
       return;
@@ -10929,12 +10938,14 @@ window.checkPromo = function() {
   window.dmInitSection = async function(){
     var section=document.getElementById('doctorMgmtSection');
     if(!section) return;
+    section.style.display='none'; // masquer immédiatement — évite tout flash avant vérif async
     var u=await waitAuth();
     var uid=(u&&u.uid)||window.docCurrentUser||null;
-    if(!uid){ section.style.display='none'; return; }
+    if(!uid) return; // pas de session → reste caché
     var ud=await getUser(uid)||window._lastDocData||JSON.parse(localStorage.getItem('users')||'{}')[uid]||null;
     if(ud) window._lastDocData=ud;
-    if(isInvited(ud,uid)){ section.style.display='none'; return; }
+    if(!ud||isInvited(ud,uid)) return; // invité ou profil inconnu → reste caché
+    // Médecin principal uniquement
     section.style.display='block';
     try{ if(typeof dmRenderPlanInfo==='function') await dmRenderPlanInfo(); }catch(e){}
     try{ if(typeof dmLoadAndRender==='function') await dmLoadAndRender(); }catch(e){}
@@ -10953,10 +10964,18 @@ window.checkPromo = function() {
     if(ud) window._lastDocData=ud;
     if(isInvited(ud,uid)){ listEl.innerHTML=''; return; }
     var owner=uid;
+    var ownerEmail=cleanEmail((u&&u.email)||(ud&&(ud.mail||ud.email))||'');
     try{
       var s=await db().ref('cabinets/'+owner+'/doctors').get();
       var docs=s.exists()?(s.val()||{}):{};
-      var arr=Object.keys(docs).map(function(k){ var d=docs[k]||{}; d._key=k; return d; });
+      var arr=Object.keys(docs).map(function(k){ var d=docs[k]||{}; d._key=k; return d; })
+        .filter(function(d){
+          // Ne jamais afficher le médecin principal dans sa propre liste
+          if(String(d.uid||d.id||'')===String(uid)) return false;
+          var de=cleanEmail(d.email||d.mail||'');
+          if(ownerEmail&&de&&de===ownerEmail) return false;
+          return true;
+        });
       if(!arr.length){ listEl.innerHTML='<div class="dm-empty">Aucun médecin invité pour l\'instant.<br><span style="font-size:11px">Utilisez le bouton ci-dessus pour inviter un confrère.</span></div>'; return; }
       function esc(s){ return String(s||'').replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];}); }
       listEl.innerHTML=arr.map(function(d){
