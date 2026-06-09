@@ -4656,7 +4656,32 @@ function showPaywall(mode) {
     var _pwUid   = (typeof docCurrentUser !== 'undefined' ? docCurrentUser : null);
     var _pwUsers = JSON.parse(localStorage.getItem('users') || '{}');
     var _pwUser  = _pwUid ? (_pwUsers[_pwUid] || null) : null;
-    if (_pwUser && typeof isInvitedDoctor === 'function' && isInvitedDoctor(_pwUser, _pwUid)) {
+    // Vérification élargie : role, subscriptionStatus, billingOwner, invitedBy, addedBy
+    var _isInvited = _pwUser && (
+      _pwUser.role === 'invited_doctor' || _pwUser.role === 'invitedDoctor' ||
+      _pwUser.subscriptionStatus === 'included_by_invitation' ||
+      !!_pwUser.billingOwner || !!_pwUser.invitedBy || !!_pwUser.addedBy
+    );
+    if (!_isInvited && _pwUid && typeof fbGetUserByUid === 'function') {
+      // Vérification async : lire Firebase et ouvrir dashboard si invité
+      fbGetUserByUid(_pwUid).then(function(_fbU) {
+        if (!_fbU) return;
+        var _fbInvited = _fbU.role === 'invited_doctor' || _fbU.role === 'invitedDoctor' ||
+          _fbU.subscriptionStatus === 'included_by_invitation' ||
+          !!_fbU.billingOwner || !!_fbU.invitedBy || !!_fbU.addedBy;
+        if (_fbInvited) {
+          console.warn('[ML PAYWALL GUARD] showPaywall() annulé via Firebase — médecin invité. uid:', _pwUid);
+          // Cacher le paywall s'il a été affiché entre-temps
+          var _ov = document.getElementById('paywallOverlay');
+          if (_ov) _ov.classList.add('hidden');
+          // Mettre à jour le cache
+          try { var _c=JSON.parse(localStorage.getItem('users')||'{}'); _c[_pwUid]=Object.assign(_c[_pwUid]||{},_fbU); localStorage.setItem('users',JSON.stringify(_c)); } catch(e) {}
+          window._lastDocData = _fbU;
+          if (typeof openDocDashboard === 'function') openDocDashboard(_pwUid, _fbU);
+        }
+      }).catch(function(){});
+    }
+    if (_isInvited) {
       console.warn('[ML PAYWALL GUARD] showPaywall() annulé — médecin invité.',
         'uid:', _pwUid, '| role:', _pwUser.role,
         '| subscriptionStatus:', _pwUser.subscriptionStatus,
@@ -4743,6 +4768,19 @@ async function checkSessionAccess() {
 
   // ── 1. Compte supprimé de la DB ──────────────────────────────────────
   if (!u) {
+    // Tenter réparation par email avant de montrer le paywall
+    try {
+      const _authUser = window.fbAuth && window.fbAuth.currentUser;
+      const _repairEmail = _authUser && _authUser.email;
+      if (_repairEmail) {
+        const _repaired = await mlRepairInvitedDoctorByEmail(docCurrentUser, _repairEmail).catch(() => null);
+        if (_repaired) {
+          console.log('[ML ACCESS] Compte absent réparé — accès accordé. uid:', docCurrentUser);
+          openDocDashboard(docCurrentUser, _repaired);
+          return;
+        }
+      }
+    } catch(_re) {}
     docLogout();
     showPaywall('new');
     return;
@@ -4750,6 +4788,14 @@ async function checkSessionAccess() {
 
   // ── 2. Compte désactivé ───────────────────────────────────────────────
   if (u.disabled) {
+    // Médecin invité désactivé → déconnexion sans paywall
+    if (u.role === 'invited_doctor' || u.role === 'invitedDoctor'
+      || u.subscriptionStatus === 'included_by_invitation'
+      || u.billingOwner || u.invitedBy || u.addedBy) {
+      console.warn('[ML ACCESS] invited_doctor désactivé — déconnexion sans paywall.');
+      docLogout();
+      return;
+    }
     docLogout();
     showPaywall('new');
     return;
@@ -8309,11 +8355,26 @@ async function dmToggleStatus(doctorUid, newStatus) {
     const userHandler = userRef.on('value', function(snap) {
       if (!docCurrentUser) return;
       if (!snap.exists()) {
-        // Compte supprimé
+        // Compte supprimé — médecin invité ne voit jamais le paywall
+        var _allU = JSON.parse(localStorage.getItem('users') || '{}');
+        var _cu = _allU[docCurrentUser] || null;
+        if (_cu && (_cu.role === 'invited_doctor' || _cu.role === 'invitedDoctor'
+          || _cu.subscriptionStatus === 'included_by_invitation'
+          || _cu.billingOwner || _cu.invitedBy || _cu.addedBy)) {
+          console.warn('[ML HOOK] invited_doctor absent de users/ — pas de paywall, dashboard maintenu.');
+          return;
+        }
         docLogout(); showPaywall('new'); return;
       }
       const u = snap.val();
       if (u.disabled) {
+        // Désactivé — médecin invité ne voit pas le paywall
+        if (u.role === 'invited_doctor' || u.role === 'invitedDoctor'
+          || u.subscriptionStatus === 'included_by_invitation'
+          || u.billingOwner || u.invitedBy || u.addedBy) {
+          console.warn('[ML HOOK] invited_doctor désactivé — déconnexion sans paywall.');
+          docLogout(); return;
+        }
         docLogout(); showPaywall('new'); return;
       }
     });
@@ -8361,12 +8422,26 @@ async function dmToggleStatus(doctorUid, newStatus) {
       const docEntryRef = firebase.database().ref('cabinets/' + cabinetId + '/doctors/' + doctorUidInCabinet);
       const docEntryHandler = docEntryRef.on('value', function(snap) {
         if (!docCurrentUser) return;
+        // Médecin invité : lire son profil pour décider
+        var _allU2 = JSON.parse(localStorage.getItem('users') || '{}');
+        var _cu2 = _allU2[docCurrentUser] || null;
+        var _isInvDoc = _cu2 && (_cu2.role === 'invited_doctor' || _cu2.role === 'invitedDoctor'
+          || _cu2.subscriptionStatus === 'included_by_invitation'
+          || _cu2.billingOwner || _cu2.invitedBy || _cu2.addedBy);
         if (!snap.exists()) {
           // Supprimé du cabinet
+          if (_isInvDoc) {
+            console.warn('[ML HOOK] invited_doctor supprimé du cabinet — déconnexion sans paywall.');
+            docLogout(); return;
+          }
           docLogout(); showPaywall('new'); return;
         }
         const entry = snap.val();
         if (entry.status === 'disabled') {
+          if (_isInvDoc) {
+            console.warn('[ML HOOK] invited_doctor désactivé dans cabinet — déconnexion sans paywall.');
+            docLogout(); return;
+          }
           docLogout(); showPaywall('new'); return;
         }
       });
