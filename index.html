@@ -1297,8 +1297,11 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
     console.log('cabinet trialStart :', cabinetData && cabinetData.trialStart);
     // ──────────────────────────────────────────────────────────────────
 
-    var hasAccess = userData.hasPaid || userData.isFounder || userData.addedBy;
-    var _hasAccessReason = userData.hasPaid ? 'hasPaid' : userData.isFounder ? 'isFounder' : userData.addedBy ? 'addedBy' : 'aucun';
+    var _isInvitedRoleSession = (userData.role === 'invited_doctor' || userData.role === 'invitedDoctor' ||
+      userData.subscriptionStatus === 'included_by_invitation');
+    var hasAccess = userData.hasPaid || userData.isFounder || userData.addedBy || _isInvitedRoleSession;
+    var _hasAccessReason = userData.hasPaid ? 'hasPaid' : userData.isFounder ? 'isFounder' : userData.addedBy ? 'addedBy' :
+      _isInvitedRoleSession ? 'role=invited_doctor/included_by_invitation' : 'aucun';
     if (!hasAccess && cabinetData && cabinetData.trialStart) {
       hasAccess = (Date.now() - cabinetData.trialStart) < 30 * 24 * 3600 * 1000;
       if (hasAccess) _hasAccessReason = 'cabinet.trialStart (en cours)';
@@ -1308,9 +1311,17 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
       if (hasAccess) _hasAccessReason = 'userData.trialStart (en cours)';
     }
 
+    var _sessionOwnerUid = userData.billingOwner || userData.invitedBy || userData.addedBy || null;
     console.log('── résultat ─────────────────────────────────');
     console.log('hasAccess          :', hasAccess);
     console.log('raison hasAccess   :', _hasAccessReason);
+    console.log('[ML INVITED DOCTOR - SESSION RESTORE]', JSON.stringify({
+      uid, email: (window.fbAuth && window.fbAuth.currentUser && window.fbAuth.currentUser.email) || userData.mail || userData.email || '?',
+      userData: { role: userData.role, hasPaid: userData.hasPaid, subscriptionStatus: userData.subscriptionStatus, billingOwner: userData.billingOwner, invitedBy: userData.invitedBy, addedBy: userData.addedBy },
+      ownerUid: _sessionOwnerUid,
+      hasAccess,
+      reason: _hasAccessReason
+    }));
     if (!hasAccess) console.error('[ML LOGIN] REFUS – le compte n\'a pas accès. Aucune condition satisfaite.');
     console.groupEnd();
 
@@ -4624,6 +4635,19 @@ function docLogout() {
 
 // ── Affiche le paywall avec le bon message selon le contexte ─────────
 function showPaywall(mode) {
+  // Un médecin invité ne doit JAMAIS voir le paywall — bypass total.
+  try {
+    var _pwUid   = (typeof docCurrentUser !== 'undefined' ? docCurrentUser : null);
+    var _pwUsers = JSON.parse(localStorage.getItem('users') || '{}');
+    var _pwUser  = _pwUid ? (_pwUsers[_pwUid] || null) : null;
+    if (_pwUser && typeof isInvitedDoctor === 'function' && isInvitedDoctor(_pwUser, _pwUid)) {
+      console.warn('[ML PAYWALL GUARD] showPaywall() annulé — médecin invité.',
+        'uid:', _pwUid, '| role:', _pwUser.role,
+        '| subscriptionStatus:', _pwUser.subscriptionStatus,
+        '| billingOwner:', _pwUser.billingOwner);
+      return;
+    }
+  } catch(_pge) {}
   // mode: 'new' (jamais payé) | 'expired' (essai terminé)
   try {
     var _uid  = (typeof docCurrentUser !== 'undefined' ? docCurrentUser : null) || '(null)';
@@ -6541,17 +6565,36 @@ async function saveNewPassword() {
   docMsg('newpassMsg', 'Mise a jour...', '');
 
   // 1. Mettre a jour Firebase Auth (vrai mot de passe)
+  let _newAuthUidFromInvite = null; // UID Firebase Auth nouvellement créé (flow invitation)
   try {
     // Re-authentifier puis updatePassword
     const cred = await fbAuth.signInWithEmailAndPassword(resetEmail, p1).catch(async () => {
-      // L'ancien mdp est inconnu → on utilise updatePassword sur l'utilisateur courant
-      // ou on signIn avec le code OTP verifie (pas possible cote client sans Admin SDK)
-      // Solution : passer par confirmPasswordReset n'est pas dispo sans oobCode
-      // On ne peut pas forcer updatePassword sans etre connecte avec l'ancien mdp
-      // → on laisse Firebase Auth tel quel et on met a jour uniquement la DB + localStorage
       return null;
     });
   } catch(e) {}
+
+  // INVITE FLOW : créer le compte Firebase Auth si le médecin n'en a pas encore.
+  // Sans ça, le médecin ne peut se connecter que sur l'appareil où il a défini son mot de passe.
+  if (pendingResetIsInvite && !fbAuth.currentUser) {
+    try {
+      const _invCred = await fbAuth.createUserWithEmailAndPassword(resetEmail, p1);
+      if (_invCred && _invCred.user) {
+        _newAuthUidFromInvite = _invCred.user.uid;
+        console.log('[ML INVITE] Compte Firebase Auth créé — uid:', _newAuthUidFromInvite, '| email:', resetEmail);
+      }
+    } catch(_createErr) {
+      if (_createErr.code === 'auth/email-already-in-use') {
+        // Compte existant → connexion avec le nouveau mot de passe
+        const _sc = await fbAuth.signInWithEmailAndPassword(resetEmail, p1).catch(() => null);
+        if (_sc && _sc.user) {
+          _newAuthUidFromInvite = _sc.user.uid;
+          console.log('[ML INVITE] Compte Firebase Auth existant — uid:', _newAuthUidFromInvite);
+        }
+      } else {
+        console.warn('[ML INVITE] Création compte Firebase Auth échouée:', _createErr.code, _createErr.message);
+      }
+    }
+  }
 
   // Verifier si l'utilisateur Firebase Auth est connecte (apres OTP flow, il ne l'est pas)
   const currentFbUser = fbAuth.currentUser;
@@ -6687,6 +6730,67 @@ async function saveNewPassword() {
       })).catch(() => {});
     }
   } catch(e) { console.warn('[ML PATCH] activation invitation par email:', e); }
+
+  // INVITE FLOW : si un vrai UID Firebase Auth a été créé, écrire users/{authUid} avec tous
+  // les champs d'invitation. Sans ça le médecin ne peut se connecter que sur cet appareil.
+  if (_newAuthUidFromInvite) {
+    try {
+      const _invForAuth = await mlFindInviteByEmail(resetEmail).catch(() => null);
+      const _ownerForAuth = (_invForAuth && _invForAuth.ownerUid) || invitePatch.billingOwner || null;
+      const _invDoc = (_invForAuth && _invForAuth.doctor) || {};
+      const _authProfile = Object.assign({
+        uid: _newAuthUidFromInvite,
+        firebaseUid: _newAuthUidFromInvite,
+        mail: resetEmail,
+        email: resetEmail,
+        name: _invDoc.name || resetEmail.split('@')[0],
+        displayName: _invDoc.name || resetEmail.split('@')[0],
+        specialty: _invDoc.specialty || '',
+        role: 'invited_doctor',
+        hasPaid: true,
+        subscriptionStatus: 'included_by_invitation',
+        invitationPending: false,
+        invitationActivatedAt: Date.now(),
+        passwordCreatedAt: Date.now()
+      }, _ownerForAuth ? {
+        billingOwner: _ownerForAuth,
+        invitedBy: _ownerForAuth,
+        addedBy: _ownerForAuth,
+        cabinetId: _ownerForAuth,
+        ownerUid: _ownerForAuth
+      } : {});
+
+      await fbSetUserByUid(_newAuthUidFromInvite, _authProfile).catch(() => {});
+      console.log('[ML INVITE] users/' + _newAuthUidFromInvite + ' écrit avec role=invited_doctor | ownerUid:', _ownerForAuth);
+
+      // Mettre à jour l'entrée du cabinet avec le vrai UID Firebase Auth
+      if (_invForAuth && _invForAuth.ownerUid && _invForAuth.inviteUid) {
+        await fbSetCabinetDoctor(_invForAuth.ownerUid, _invForAuth.inviteUid, Object.assign({}, _invDoc, {
+          uid: _newAuthUidFromInvite,
+          authUid: _newAuthUidFromInvite,
+          firebaseUid: _newAuthUidFromInvite,
+          role: 'invited_doctor',
+          hasPaid: true,
+          subscriptionStatus: 'included_by_invitation',
+          billingOwner: _invForAuth.ownerUid,
+          invitedBy: _invForAuth.ownerUid,
+          addedBy: _invForAuth.ownerUid,
+          status: 'active',
+          invitationPending: false,
+          activatedAt: Date.now()
+        })).catch(() => {});
+      }
+
+      // Synchroniser le cache localStorage
+      try {
+        const _lcAuth = JSON.parse(localStorage.getItem('users') || '{}');
+        _lcAuth[_newAuthUidFromInvite] = _authProfile;
+        localStorage.setItem('users', JSON.stringify(_lcAuth));
+      } catch(_lce) {}
+    } catch(_invAuthErr) {
+      console.warn('[ML INVITE] Écriture profil Auth échouée:', _invAuthErr);
+    }
+  }
 
   // Mise a jour localStorage
   const local = JSON.parse(localStorage.getItem('users') || '{}');
@@ -6824,6 +6928,25 @@ async function docLogin() {
     }
   }
 
+  // FALLBACK : si userData a billingOwner/invitedBy/addedBy (champs invité) mais pas le bon rôle,
+  // réparer automatiquement — évite le paywall sur un profil partiellement écrit.
+  if (userData && !isInvitedDoctor(userData, uid)) {
+    const _ownerRef = userData.billingOwner || userData.invitedBy || userData.addedBy;
+    if (_ownerRef && String(_ownerRef) !== String(uid)) {
+      console.log('[ML FIX] billingOwner/addedBy détecté sans role=invited_doctor → réparation auto. ownerRef:', _ownerRef);
+      const _rolePatch = {
+        role: 'invited_doctor',
+        hasPaid: true,
+        subscriptionStatus: 'included_by_invitation',
+        billingOwner: _ownerRef,
+        invitedBy: _ownerRef,
+        addedBy: _ownerRef
+      };
+      userData = Object.assign({}, userData, _rolePatch);
+      await fbUpdateUserByUid(uid, _rolePatch).catch(() => {});
+    }
+  }
+
   // Migration : si le compte existe mais n'a pas de publicCode, en generer un
   if (userData && !userData.publicCode) {
     const migCode = generatePublicCode(uid);
@@ -6867,9 +6990,11 @@ async function docLogin() {
   // CORRECTION : si ce compte correspond à une invitation par email,
   // on le rattache AVANT le contrôle d'abonnement.
   // Sinon l'invité tombe sur le paywall alors qu'il est inclus dans l'abonnement du owner.
+  let _loginInviteFound = null; // capturé pour le log diagnostic
   try {
     const inviteEmail = (userData.email || userData.mail || (fbAuth.currentUser && fbAuth.currentUser.email) || '').toLowerCase();
-    const inviteFound = inviteEmail ? await mlFindInviteByEmail(inviteEmail) : null;
+    _loginInviteFound = inviteEmail ? await mlFindInviteByEmail(inviteEmail) : null;
+    const inviteFound = _loginInviteFound;
 
     if (
       inviteFound &&
@@ -6942,6 +7067,36 @@ async function docLogin() {
   }
   if (!hasAccess && userData.trialStart) {
     hasAccess = Date.now() < userData.trialStart + 30 * 24 * 3600 * 1000;
+  }
+
+  // ── Diagnostic complet (uid, email, userData, inviteFound, ownerUid, hasAccess, reason) ──
+  {
+    const _dOwner = userData.billingOwner || userData.invitedBy || userData.addedBy || null;
+    const _dReason = hasAccess
+      ? (userData.hasPaid ? 'hasPaid' : userData.isFounder ? 'isFounder'
+         : userData.addedBy ? 'addedBy'
+         : userData.role === 'invited_doctor' ? 'role=invited_doctor'
+         : userData.subscriptionStatus === 'included_by_invitation' ? 'included_by_invitation'
+         : cabinetData && cabinetData.trialStart ? 'cabinet.trial' : 'userData.trial')
+      : 'AUCUN — paywall';
+    console.log('[ML INVITED DOCTOR - LOGIN]', JSON.stringify({
+      uid,
+      email: emailToUse,
+      userData: {
+        role: userData.role,
+        hasPaid: userData.hasPaid,
+        subscriptionStatus: userData.subscriptionStatus,
+        billingOwner: userData.billingOwner,
+        invitedBy: userData.invitedBy,
+        addedBy: userData.addedBy
+      },
+      inviteFound: _loginInviteFound
+        ? { ownerUid: _loginInviteFound.ownerUid, inviteUid: _loginInviteFound.inviteUid }
+        : null,
+      ownerUid: _dOwner,
+      hasAccess,
+      reason: _dReason
+    }));
   }
 
   if (!hasAccess) {
@@ -7555,6 +7710,27 @@ async function dmAddDoctor() {
     };
     await fbSetCabinetDoctor(cabinetId, doctorUid, doctorEntry);
     console.log('[ML] cabinets/' + cabinetId + '/doctors/' + doctorUid + ' écrit');
+
+    // Écrire aussi dans invitations/{safeKey} pour que mlFindInviteByEmail puisse
+    // retrouver cette invitation par email sur un appareil vierge (sans cache localStorage).
+    try {
+      const _invKey = 'invite_' + emailVal.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80);
+      await firebase.database().ref('invitations/' + _invKey).set({
+        email: emailVal,
+        ownerUid: ownerKey,
+        billingOwner: ownerKey,
+        invitedBy: ownerKey,
+        addedBy: ownerKey,
+        doctorUid: doctorUid,
+        cabinetId: cabinetId,
+        role: 'invited_doctor',
+        hasPaid: true,
+        subscriptionStatus: 'included_by_invitation',
+        createdAt: Date.now()
+      });
+      console.log('[ML] invitations/' + _invKey + ' écrit (lookup email cross-device)');
+    } catch(_invErr) { console.warn('[ML] invitations write failed:', _invErr && _invErr.code); }
+
     console.log('Médecins chargés:', await fbGetCabinetDoctors(cabinetId).catch(() => ({})));
 
     // ── 6. Email d'invitation (EmailJS uniquement, pas sendPasswordResetEmail
