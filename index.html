@@ -8172,9 +8172,15 @@ async function dmLoadAndRender() {
     const entries = Object.values(doctors || {})
       .filter(d => {
         // Ne jamais afficher le médecin principal dans sa propre liste
-        if ((d.uid || d.id || '') === docCurrentUser) return false;
+        const dUid = String(d.uid || d.id || '');
+        if (dUid && dUid === docCurrentUser) return false;
         const de = (d.email || d.mail || '').trim().toLowerCase();
         if (_ownerEmailForFilter && de && de === _ownerEmailForFilter) return false;
+        // Exclure toute entrée ayant role=owner ou role=main
+        if (d.role === 'owner' || d.role === 'main') return false;
+        // Garder uniquement les vrais invités : doivent avoir au moins un marqueur d'invitation
+        const hasInviteMarker = !!(d.invitedBy || d.addedBy || (d.billingOwner && String(d.billingOwner) !== docCurrentUser));
+        if (!hasInviteMarker) return false;
         return true;
       })
       .sort((a,b) => (a.addedAt||0) - (b.addedAt||0));
