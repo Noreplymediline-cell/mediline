@@ -2719,7 +2719,15 @@ function getCabinetSubscriptionStatus(code) {
   try { return (JSON.parse(localStorage.getItem('cabinets')) || {})[code]?.subscriptionStatus || 'inactive'; } catch { return 'inactive'; }
 }
 function countDoctorsInCabinet(code) {
-  try { return Object.values(JSON.parse(localStorage.getItem('users')) || {}).filter(u => u.cabinetCode === code).length; } catch { return 0; }
+  try {
+    // Compter depuis cabinets/{ownerUid}/doctors (source fiable)
+    var _allCabs2 = JSON.parse(localStorage.getItem('cabinets')) || {};
+    var _cab2 = _allCabs2[code] || null;
+    var _doctors2 = (_cab2 && _cab2.doctors) ? Object.keys(_cab2.doctors).length : 0;
+    if (_doctors2 > 0) return _doctors2;
+    // Fallback : compter depuis users cache (peut être inexact)
+    return Object.values(JSON.parse(localStorage.getItem('users')) || {}).filter(function(u){ return u.cabinetCode === code || u.billingOwner === code || u.invitedBy === code || u.addedBy === code; }).length;
+  } catch(e) { return 0; }
 }
 // ── Vérifie si un cabinet est en période d'essai active (30 jours) ──
 function getCabinetTrialStatus(code) {
@@ -7699,7 +7707,9 @@ async function dmRenderPlanInfo() {
     } catch(e) {}
   }
   if (!u) return;
-  const cabinetId = u.cabinetId || u.cabinetCode || docCurrentUser;
+  // Toujours utiliser l'UID owner comme clé cabinet (pas le cabinetCode ML-xxxx)
+  const _ownerUid = u.billingOwner || u.invitedBy || u.addedBy || docCurrentUser;
+  const cabinetId = _ownerUid;
   if (!cabinetId) return;
   // Charger cabinet depuis Firebase si absent du cache
   var allCabs = {};
@@ -7714,8 +7724,13 @@ async function dmRenderPlanInfo() {
   const info = canAddDoctorToCabinet(cabinetId);
   const trial = getCabinetTrialStatus(cabinetId);
 
-  // ── Override : hasPaid ou isFounder débloquent toujours l'ajout ──────
-  if (!info.allowed && (u.hasPaid || u.isFounder || u.subscriptionStatus === 'active')) {
+  // ── Override : essai actif, hasPaid, isFounder ou abonnement actif → toujours illimité ──
+  const _cabData = allCabs[cabinetId] || null;
+  const _cabSubStatus = _cabData && _cabData.subscriptionStatus;
+  const _trialOverride = trial.inTrial || _cabSubStatus === 'trial'
+    || (u.trialStart && (Date.now() - u.trialStart) < 30 * 24 * 3600 * 1000);
+  if (!info.allowed && (_trialOverride || u.hasPaid || u.isFounder
+    || u.subscriptionStatus === 'active' || _cabSubStatus === 'active')) {
     info.allowed = true;
     info.max = 'illimité';
     info.hasPaidOverride = true;
