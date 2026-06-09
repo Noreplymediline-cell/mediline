@@ -1325,7 +1325,23 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
     if (!hasAccess) console.error('[ML LOGIN] REFUS – le compte n\'a pas accès. Aucune condition satisfaite.');
     console.groupEnd();
 
-    if (!hasAccess) return;
+    if (!hasAccess) {
+      // LAST-CHANCE REPAIR : restauration de session — même logique que docLogin
+      var _sessionEmail = (window.fbAuth && window.fbAuth.currentUser && window.fbAuth.currentUser.email) || userData.mail || userData.email || '';
+      console.error('[ML SESSION REPAIR] Tentative réparation uid:', uid, 'email:', _sessionEmail);
+      if (_sessionEmail) {
+        var _sessionRepaired = await mlRepairInvitedDoctorByEmail(uid, _sessionEmail).catch(function(){ return null; });
+        if (_sessionRepaired) {
+          userData = _sessionRepaired;
+          hasAccess = true;
+          console.log('[ML SESSION REPAIR] Succès — session restaurée. uid:', uid, 'ownerUid:', userData.billingOwner);
+        }
+      }
+      if (!hasAccess) {
+        console.error('[ML SESSION REPAIR] Échec — session bloquée. uid:', uid);
+        return;
+      }
+    }
 
     if (docCurrentUser) return; // session manuelle déjà active
 
@@ -6537,6 +6553,116 @@ async function mlAttachInviteToAuthUser(authUid, email, baseUserData) {
   } catch(e) {}
   return merged;
 }
+
+// ── Réparation d'urgence avant paywall ──────────────────────────────────
+// Cherche l'email dans invitations/, email_to_cabinet/ et le cache localStorage.
+// Si une invitation correspond, répare users/{uid} et retourne le profil corrigé.
+async function mlRepairInvitedDoctorByEmail(uid, email) {
+  email = (email || '').trim().toLowerCase();
+  if (!email || !uid) return null;
+
+  var ownerUid = null;
+  var inviteDoc = null;
+
+  // 1. invitations/{safeKey}
+  try {
+    var safeKey = 'invite_' + email.replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,80);
+    var snap = await firebase.database().ref('invitations/' + safeKey).get().catch(function(){ return null; });
+    if (snap && snap.exists()) {
+      var inv = snap.val();
+      ownerUid = inv.billingOwner || inv.invitedBy || inv.addedBy || inv.ownerUid || null;
+      inviteDoc = inv;
+      console.log('[ML REPAIR] invitations/' + safeKey, '→ ownerUid:', ownerUid);
+    }
+  } catch(e) {}
+
+  // 2. email_to_cabinet/{safeEmail} (index écrit par dmAddDoctor)
+  if (!ownerUid) {
+    try {
+      var safeEmail = email.replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,80);
+      var snap2 = await firebase.database().ref('email_to_cabinet/' + safeEmail).get().catch(function(){ return null; });
+      if (snap2 && snap2.exists()) {
+        var idx = snap2.val();
+        ownerUid = idx.ownerUid || null;
+        console.log('[ML REPAIR] email_to_cabinet/' + safeEmail, '→ ownerUid:', ownerUid);
+      }
+    } catch(e) {}
+  }
+
+  // 3. Cache localStorage des cabinets (fallback sans réseau)
+  if (!ownerUid) {
+    try {
+      var cabs = JSON.parse(localStorage.getItem('cabinets') || '{}');
+      for (var cabUid in cabs) {
+        var docs = (cabs[cabUid] && cabs[cabUid].doctors) || {};
+        for (var dUid in docs) {
+          var d = docs[dUid] || {};
+          if ((d.email || d.mail || '').trim().toLowerCase() === email) {
+            ownerUid = cabUid;
+            inviteDoc = d;
+            console.log('[ML REPAIR] Cache localStorage cabinets → ownerUid:', ownerUid);
+            break;
+          }
+        }
+        if (ownerUid) break;
+      }
+    } catch(e) {}
+  }
+
+  if (!ownerUid) {
+    console.log('[ML REPAIR] Aucune invitation trouvée pour email:', email, '| uid:', uid);
+    return null;
+  }
+
+  // 4. Lire cabinets/{ownerUid}/doctors pour récupérer les données du docteur
+  try {
+    var docSnap = await firebase.database().ref('cabinets/' + ownerUid + '/doctors').get().catch(function(){ return null; });
+    if (docSnap && docSnap.exists()) {
+      var allDocs = docSnap.val();
+      for (var dk in allDocs) {
+        var dd = allDocs[dk] || {};
+        if ((dd.email || dd.mail || '').trim().toLowerCase() === email) {
+          inviteDoc = dd;
+          break;
+        }
+      }
+    }
+  } catch(e) {}
+
+  // 5. Réparer users/{uid}
+  var patch = {
+    role: 'invited_doctor',
+    hasPaid: true,
+    subscriptionStatus: 'included_by_invitation',
+    billingOwner: ownerUid,
+    invitedBy: ownerUid,
+    addedBy: ownerUid,
+    cabinetId: ownerUid,
+    invitationPending: false,
+    invitationActivatedAt: Date.now()
+  };
+  if (inviteDoc) {
+    if (inviteDoc.name)      { patch.name = inviteDoc.name; patch.displayName = inviteDoc.name; }
+    if (inviteDoc.specialty) patch.specialty = inviteDoc.specialty;
+  }
+
+  try {
+    await fbUpdateUserByUid(uid, patch);
+    console.log('[ML REPAIR] users/' + uid + ' réparé avec role=invited_doctor | ownerUid:', ownerUid);
+  } catch(writeErr) {
+    console.warn('[ML REPAIR] fbUpdateUserByUid échoué:', writeErr && (writeErr.code || writeErr.message));
+  }
+
+  // Mettre à jour le cache localStorage
+  try {
+    var lsU = JSON.parse(localStorage.getItem('users') || '{}');
+    lsU[uid] = Object.assign({}, lsU[uid] || {}, { uid, mail: email, email }, patch);
+    localStorage.setItem('users', JSON.stringify(lsU));
+  } catch(e) {}
+
+  return Object.assign({}, { uid, mail: email, email }, patch);
+}
+
 async function mlGetDashboardCabinetTitle(userData, uid) {
   var ownerUid = mlGetOwnerUidFromUser(userData, uid);
   var cabinet = null;
@@ -7100,6 +7226,21 @@ async function docLogin() {
   }
 
   if (!hasAccess) {
+    // LAST-CHANCE REPAIR : chercher l'email dans toutes les invitations avant d'afficher le paywall
+    console.error('[ML PAYWALL REASON] uid:', uid, '| email:', emailToUse,
+      '| role:', userData.role, '| hasPaid:', userData.hasPaid,
+      '| subscriptionStatus:', userData.subscriptionStatus,
+      '| billingOwner:', userData.billingOwner, '| addedBy:', userData.addedBy,
+      '→ Tentative réparation automatique…');
+    const _repairedData = await mlRepairInvitedDoctorByEmail(uid, emailToUse).catch(function(){ return null; });
+    if (_repairedData) {
+      console.log('[ML PAYWALL REPAIR] Succès — accès accordé sans paywall. uid:', uid, 'ownerUid:', _repairedData.billingOwner);
+      localStorage.setItem('ml_session', uid);
+      if (typeof mlStartInactivity === 'function') mlStartInactivity();
+      openDocDashboard(uid, _repairedData);
+      return;
+    }
+    console.error('[ML PAYWALL FINAL] Aucune invitation trouvée — paywall affiché. uid:', uid, 'email:', emailToUse);
     const expiredTrial = cabinetData && cabinetData.trialStart
       && (Date.now() - cabinetData.trialStart) >= 30 * 24 * 3600 * 1000;
     docShow('login');
@@ -7730,6 +7871,19 @@ async function dmAddDoctor() {
       });
       console.log('[ML] invitations/' + _invKey + ' écrit (lookup email cross-device)');
     } catch(_invErr) { console.warn('[ML] invitations write failed:', _invErr && _invErr.code); }
+
+    // Index email_to_cabinet/{safeEmail} pour lookup rapide ownerUid par email
+    try {
+      const _safeEmail = emailVal.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80);
+      await firebase.database().ref('email_to_cabinet/' + _safeEmail).set({
+        ownerUid: ownerKey,
+        cabinetId: cabinetId,
+        doctorUid: doctorUid,
+        email: emailVal,
+        createdAt: Date.now()
+      });
+      console.log('[ML] email_to_cabinet/' + _safeEmail + ' écrit | ownerUid:', ownerKey);
+    } catch(_eIdx) { console.warn('[ML] email_to_cabinet write failed:', _eIdx && _eIdx.code); }
 
     console.log('Médecins chargés:', await fbGetCabinetDoctors(cabinetId).catch(() => ({})));
 
