@@ -11013,10 +11013,16 @@ window.checkPromo = function() {
       console.log('DOCTORS_LOADED', docs);
       var arr=Object.keys(docs).map(function(k){ var d=docs[k]||{}; d._key=k; return d; })
         .filter(function(d){
-          // Exclure le médecin principal de la liste
-          if(String(d.uid||d.id||'')===String(uid)){ console.log('[DM] exclu (même uid):', d.uid); return false; }
+          // Exclure le owner lui-même (par uid)
+          if(String(d.uid||d.id||'')===String(uid)){ console.log('[DM] exclu (même uid):', d.uid||d.id); return false; }
+          // Exclure le owner par email
           var de=cleanEmail(d.email||d.mail||'');
           if(ownerEmail&&de&&de===ownerEmail){ console.log('[DM] exclu (même email owner):', de); return false; }
+          // Exclure toute entrée ayant role=owner
+          if(d.role==='owner'||d.role==='main'){ console.log('[DM] exclu (role owner):', d.email||d._key); return false; }
+          // Garder uniquement les vrais invités : doivent avoir au moins un marqueur d'invitation
+          var hasInviteMarker=!!(d.invitedBy||d.addedBy||(d.billingOwner&&String(d.billingOwner)!==String(uid)));
+          if(!hasInviteMarker){ console.log('[DM] exclu (pas de marqueur invitation):', d.email||d._key); return false; }
           return true;
         });
       if(!arr.length){ listEl.innerHTML='<div class="dm-empty">Aucun médecin invité pour l\'instant.<br><span style="font-size:11px">Utilisez le bouton ci-dessus pour inviter un confrère.</span></div>'; return; }
