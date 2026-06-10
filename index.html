@@ -1356,7 +1356,7 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
     }
 
     var launch = function() {
-      showPage('doctor');
+      showPage('doctor');  // toujours afficher la page doctor, jamais landing/home
       openDocDashboard(uid, userData);
       mlStartInactivity();
     };
@@ -7338,12 +7338,28 @@ async function docLogin() {
     console.warn('[ML] rattachement invitation avant paywall impossible:', e);
   }
 
+  // [INVITED_LOGIN_ACCESS] — détection invité avant tout contrôle d'abonnement
+  var _invMarker = !!(userData.billingOwner || userData.invitedBy || userData.addedBy
+    || userData.role === 'invited_doctor' || userData.role === 'invitedDoctor'
+    || userData.subscriptionStatus === 'included_by_invitation');
+  console.log('[INVITED_LOGIN_ACCESS] uid:', uid,
+    '| role:', userData.role,
+    '| billingOwner:', userData.billingOwner,
+    '| invitedBy:', userData.invitedBy,
+    '| addedBy:', userData.addedBy,
+    '| _invMarker:', _invMarker);
+  if (_invMarker) {
+    // Médecin invité : accès direct, jamais showPaywall
+    console.log('[INVITED_LOGIN_ACCESS] → accès direct dashboard. ownerUid:', userData.billingOwner || userData.invitedBy || userData.addedBy);
+    localStorage.setItem('ml_session', uid);
+    if (typeof mlStartInactivity === 'function') mlStartInactivity();
+    openDocDashboard(uid, userData);
+    return;
+  }
+
   let hasAccess =
     userData.hasPaid ||
-    userData.isFounder ||
-    userData.addedBy ||
-    userData.role === 'invited_doctor' ||
-    userData.subscriptionStatus === 'included_by_invitation';
+    userData.isFounder;
   if (!hasAccess && cabinetData && cabinetData.trialStart) {
     hasAccess = (Date.now() - cabinetData.trialStart) < 30 * 24 * 3600 * 1000;
   }
@@ -8013,6 +8029,7 @@ async function dmAddDoctor() {
       invitationCreatedAt: Date.now()
     };
     await fbSetCabinetDoctor(cabinetId, doctorUid, doctorEntry);
+    console.log('[INVITE_SENT] doctor écrit (legacy) — cabinetId:', cabinetId, '| doctorUid:', doctorUid, '| email:', emailVal);
     console.log('[ML] cabinets/' + cabinetId + '/doctors/' + doctorUid + ' écrit');
 
     // Écrire aussi dans invitations/{safeKey} pour que mlFindInviteByEmail puisse
@@ -8069,10 +8086,13 @@ async function dmAddDoctor() {
     dmMsg('✅ ' + actionLabel + (emailSent ? ' · Email envoyé à ' + emailVal : ' · (email non envoyé)'), 'ok');
     showToast('✅ ' + nameVal + ' invité avec succès !', 'green');
 
+    // [INVITE_SENT] rechargement immédiat de la liste
+    try{ await dmLoadAndRender(); }catch(e){}
+    try{ if(typeof dmRenderPlanInfo==='function') await dmRenderPlanInfo(); }catch(e){}
     setTimeout(() => {
       dmToggleForm();
-      dmLoadAndRender();
-      dmRenderPlanInfo();
+      // Second rechargement pour s'assurer de la fraicheur
+      setTimeout(function(){ try{ dmLoadAndRender(); }catch(e){}; },400);
     }, 1800);
 
   } catch(e) {
@@ -8687,7 +8707,11 @@ function showPage(id) {
       if (allCabs) localStorage.setItem('cabinets', JSON.stringify(allCabs));
     }
 
-    var hasAccess = ud.hasPaid || ud.isFounder || ud.addedBy;
+    // Médecin invité : accès si l'un des marqueurs d'invitation est présent
+    var _isInvRestore = !!(ud.billingOwner || ud.invitedBy || ud.addedBy
+      || ud.role === 'invited_doctor' || ud.role === 'invitedDoctor'
+      || ud.subscriptionStatus === 'included_by_invitation');
+    var hasAccess = ud.hasPaid || ud.isFounder || _isInvRestore;
     if (!hasAccess && cabinetData && cabinetData.trialStart) {
       hasAccess = (Date.now() - cabinetData.trialStart) < 30 * 24 * 3600 * 1000;
     }
@@ -11198,9 +11222,7 @@ window.checkPromo = function() {
 
     var role=ud?ud.role:'';
     var isInvitedUser=isInvited(ud,uid);
-    console.log('ROLE', role);
-    console.log('IS_OWNER', !isInvitedUser);
-    console.log('IS_INVITED', isInvitedUser);
+    console.log('[INVITE_LIST_RENDER] uid:', uid, '| role:', role, '| isInvited:', isInvitedUser);
     if(isInvitedUser){ listEl.innerHTML=''; console.log('[DM] dmLoadAndRender bloqué — invited_doctor'); return; }
 
     var owner=uid;
@@ -11208,7 +11230,8 @@ window.checkPromo = function() {
     try{
       var s=await db().ref('cabinets/'+owner+'/doctors').get();
       var docs=s.exists()?(s.val()||{}):{};
-      console.log('DOCTORS_LOADED', docs);
+      // [INVITE_LIST_RENDER] — log complet des médecins chargés depuis Firebase
+      console.log('[INVITE_LIST_RENDER] doctors Firebase count:', Object.keys(docs).length, '| keys:', Object.keys(docs).join(','));
       var arr=Object.keys(docs).map(function(k){ var d=docs[k]||{}; d._key=k; return d; })
         .filter(function(d){
           // Exclure le owner lui-même (par uid)
@@ -11290,6 +11313,7 @@ window.checkPromo = function() {
       };
       await db().ref('cabinets/'+owner+'/doctors/'+inviteKey).update(doctorEntry);
       await db().ref('invitations/'+inviteKey).update(doctorEntry);
+      console.log('[INVITE_SENT] doctor écrit — owner:', owner, '| inviteKey:', inviteKey, '| email:', emailVal, '| doctorEntry:', JSON.stringify(doctorEntry));
       await updateUser(owner,{publicCode:publicCode,doctorCode:publicCode,cabinetCode:publicCode,lastInviteAt:n});
       // Mise à jour cache local
       try{ var lsU=JSON.parse(localStorage.getItem('users')||'{}'); if(lsU[owner]){lsU[owner].publicCode=publicCode;localStorage.setItem('users',JSON.stringify(lsU));} }catch(e){}
@@ -11305,9 +11329,15 @@ window.checkPromo = function() {
       }
       msg('✅ Médecin invité · statut Actif'+(sent?' · Email envoyé':''),'ok');
       if(typeof showToast==='function') showToast('✅ Médecin invité avec succès','green');
-      try{ await window.dmLoadAndRender(); }catch(e){}
+      // Recharger la liste immédiatement (Firebase vient d'être écrit)
+      try{ await window.dmLoadAndRender(); }catch(e){ console.warn('[INVITE_LIST_RENDER] reload err:',e); }
       try{ if(typeof dmRenderPlanInfo==='function') await dmRenderPlanInfo(); }catch(e){}
-      setTimeout(function(){ try{ if(typeof dmToggleForm==='function') dmToggleForm(); }catch(e){} },900);
+      // Fermer le formulaire après le rechargement
+      setTimeout(function(){
+        try{ if(typeof dmToggleForm==='function') dmToggleForm(); }catch(e){}
+        // Second rechargement pour s'assurer que la liste est à jour
+        setTimeout(function(){ try{ window.dmLoadAndRender&&window.dmLoadAndRender(); }catch(e){}; },400);
+      },900);
     }catch(e){
       console.error('[ML v8] invitation:',e);
       msg('❌ Erreur : '+(e&&(e.message||e.code)||e),'err');
