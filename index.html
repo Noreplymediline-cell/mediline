@@ -4654,6 +4654,17 @@ function aiClearHistory() {
 function docLogout() {
   if (docAutoTimer) clearInterval(docAutoTimer);
   if (typeof mlStopInactivity === 'function') mlStopInactivity();
+  // Nettoyer tous les listeners Firebase pour éviter les memory leaks
+  try { if (typeof _doctorQueueRef !== 'undefined' && _doctorQueueRef) { _doctorQueueRef.off(); } } catch(e) {}
+  try { if (typeof _patRealtimeRef !== 'undefined' && _patRealtimeRef) { _patRealtimeRef.off(); _patRealtimeRef = null; } } catch(e) {}
+  try { if (typeof _namedPatsRef !== 'undefined' && _namedPatsRef) { _namedPatsRef.off(); _namedPatsRef = null; } } catch(e) {}
+  try { if (window.ML) {
+    if (ML.doctorQueueRef) { ML.doctorQueueRef.off(); ML.doctorQueueRef = null; }
+    if (ML.doctorPatientsRef) { ML.doctorPatientsRef.off(); ML.doctorPatientsRef = null; }
+    if (ML.patientQueueRef) { ML.patientQueueRef.off(); ML.patientQueueRef = null; }
+    if (ML.patientPatientsRef) { ML.patientPatientsRef.off(); ML.patientPatientsRef = null; }
+    if (ML.patientRefreshTimer) { clearInterval(ML.patientRefreshTimer); ML.patientRefreshTimer = null; }
+  }} catch(e) {}
   localStorage.removeItem('ml_session');
   if (window.fbAuth) fbAuth.signOut().catch(function(){});
   docCurrentUser = null;
@@ -7205,7 +7216,8 @@ async function docLogin() {
         const _cabTrialStart = (_existingCab && _existingCab.exists()) ? _existingCab.val() : Date.now();
         await fbSetCabinetByUid(uid, { name: '', adresse: '', cabinetId: uid, code: minimalPublicCode, publicCode: minimalPublicCode, cabinetCode: minimalPublicCode, ownerUid: uid, trialStart: _cabTrialStart }).catch(() => {});
       } catch(_e) {
-        await fbSetCabinetByUid(uid, { name: '', adresse: '', cabinetId: uid, code: minimalPublicCode, publicCode: minimalPublicCode, cabinetCode: minimalPublicCode, ownerUid: uid, trialStart: Date.now() }).catch(() => {});
+        // Fallback conservatif : n'écrire trialStart que si vraiment absent
+        await fbSetCabinetByUid(uid, { name: '', adresse: '', cabinetId: uid, code: minimalPublicCode, publicCode: minimalPublicCode, cabinetCode: minimalPublicCode, ownerUid: uid }).catch(() => {});
       }
       console.warn('[ML] Profil minimal cree pour uid:', uid, '| publicCode:', minimalPublicCode);
     }
@@ -7407,11 +7419,16 @@ async function docLogin() {
     console.error('[ML PAYWALL FINAL] Aucune invitation trouvée — paywall affiché. uid:', uid, 'email:', emailToUse);
     const expiredTrial = cabinetData && cabinetData.trialStart
       && (Date.now() - cabinetData.trialStart) >= 30 * 24 * 3600 * 1000;
-    docShow('login');
-    showPaywall(expiredTrial ? 'expired' : 'new');
+    // Anti-boucle : si déjà sur la page login/paywall, ne pas redéclencher
+    if (!sessionStorage.getItem('ml_paywall_shown')) {
+      sessionStorage.setItem('ml_paywall_shown', '1');
+      docShow('login');
+      showPaywall(expiredTrial ? 'expired' : 'new');
+    }
     return;
   }
 
+  sessionStorage.removeItem('ml_paywall_shown'); // reset anti-boucle paywall
   localStorage.setItem('ml_session', uid);
   if (typeof mlStartInactivity === 'function') mlStartInactivity();
   openDocDashboard(uid, userData);
