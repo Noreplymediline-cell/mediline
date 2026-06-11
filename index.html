@@ -3388,14 +3388,14 @@ function generatePublicCode(uid) {
   return 'ML-' + code;
 }
 
-// Code de parrainage legacy DR-XXXX (conservé pour compatibilité)
-// Défini ici ET dans le bloc parrainage pour garantir la disponibilité partout
-function generateRefCode(uid) {
+// generateRefCode DR-XXXX : défini dans le bloc parrainage (chargé après)
+// Référence ici pour documenter l'ordre de chargement
+var generateRefCode = generateRefCode || function(uid) {
   if (!uid) return 'DR-XXXX';
   var hash = uid.replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,4);
   if (hash.length < 4) hash = (hash + '0000').slice(0,4);
   return 'DR-' + hash;
-}
+};
 
 // Normalise un code saisi par le patient : retire tirets/espaces, majuscules
 // Accepte ML48291 = ML-48291, ml-48291 = ML-48291
@@ -4655,6 +4655,7 @@ function docLogout() {
   if (docAutoTimer) clearInterval(docAutoTimer);
   if (typeof mlStopInactivity === 'function') mlStopInactivity();
   // Nettoyer tous les listeners Firebase pour éviter les memory leaks
+  try { if (typeof _referralSystemUnsubscribe === 'function') { _referralSystemUnsubscribe(); _referralSystemUnsubscribe = null; } } catch(e) {}
   try { if (typeof _doctorQueueRef !== 'undefined' && _doctorQueueRef) { _doctorQueueRef.off(); } } catch(e) {}
   try { if (typeof _patRealtimeRef !== 'undefined' && _patRealtimeRef) { _patRealtimeRef.off(); _patRealtimeRef = null; } } catch(e) {}
   try { if (typeof _namedPatsRef !== 'undefined' && _namedPatsRef) { _namedPatsRef.off(); _namedPatsRef = null; } } catch(e) {}
@@ -4841,17 +4842,15 @@ async function checkSessionAccess() {
       const doctorEntry = await firebase.database().ref(_docPath).get();
       console.log('[ML ACCESS] Entrée cabinet existe:', doctorEntry.exists(), '| val:', doctorEntry.exists() ? doctorEntry.val() : null);
       if (!doctorEntry.exists()) {
-        // Supprimé du cabinet → déconnexion
+        // Supprimé du cabinet → déconnexion propre (jamais de paywall pour un invité)
         console.warn('[ML ACCESS] Médecin absent du cabinet → déconnexion. billingOwner:', u.billingOwner, '| addedBy:', u.addedBy);
         docLogout();
-        showPaywall('new');
         return;
       }
       const dData = doctorEntry.val();
       if (dData.status === 'disabled') {
-        console.warn('[ML ACCESS] Médecin désactivé dans le cabinet.');
+        console.warn('[ML ACCESS] Médecin désactivé dans le cabinet → déconnexion propre.');
         docLogout();
-        showPaywall('new');
         return;
       }
     } catch(e) { console.warn('[ML ACCESS] Erreur lecture entrée cabinet:', e); }
@@ -7196,6 +7195,12 @@ async function docLogin() {
     } else {
       // Fallback 3 : construire un profil minimal depuis Firebase Auth
       const minimalPublicCode = generatePublicCode(uid);
+      // Lire trialStart existant AVANT d'écrire pour ne jamais le réinitialiser
+      let _existingTrialStart = null;
+      try {
+        const _tsSnap = await firebase.database().ref('users/' + uid + '/trialStart').get().catch(() => null);
+        if (_tsSnap && _tsSnap.exists()) _existingTrialStart = _tsSnap.val();
+      } catch(_tse) {}
       userData = {
         uid,
         name: firebaseUser.displayName || emailToUse.split('@')[0],
@@ -7206,7 +7211,7 @@ async function docLogin() {
         doctorCode: minimalPublicCode,
         hasPaid: false,
         role: 'owner',
-        trialStart: Date.now(), // premier login : création du trialStart
+        trialStart: _existingTrialStart || Date.now(), // ne jamais réinitialiser si existant
         _minimal: true
       };
       await fbSetUserByUid(uid, userData).catch(() => {});
@@ -10181,9 +10186,13 @@ function loadReferralPage() {
  * Pré-charge silencieusement le referralCode dès que Firebase Auth est prêt,
  * pour que le dashboard et la page parrainage s'affichent sans délai.
  */
+var _referralSystemUnsubscribe = null;
+
 function initReferralSystem() {
   if (!window.fbAuth) return;
-  window.fbAuth.onAuthStateChanged(function(user) {
+  // Ne pas enregistrer plusieurs fois
+  if (_referralSystemUnsubscribe) return;
+  _referralSystemUnsubscribe = window.fbAuth.onAuthStateChanged(function(user) {
     if (!user) return;
     var uid = user.uid;
     console.log('[REF] initReferralSystem — AUTH USER CONNECTÉ:', uid);
@@ -10556,6 +10565,16 @@ window.checkPromo = function() {
     // Stocker le discount pour l'appliquer à Stripe
     window._activePromoDiscount = refResult.discount;
     window._activePromoType = 'referral';
+    // Afficher le prix réduit dans l'UI du modal de paiement
+    try {
+      var _discountPct = refResult.discount || 20;
+      var _priceEl = document.getElementById('payModalPrice');
+      var _origPrice = currentPlan === 'cabinet_90' ? 90 : currentPlan === 'cabinet_40' ? 40 : 0;
+      if (_priceEl && _origPrice > 0) {
+        var _newPrice = Math.round(_origPrice * (1 - _discountPct / 100));
+        _priceEl.innerHTML = '<s style="color:#9ca3af;font-size:0.85em">' + _origPrice + '€</s> <strong style="color:#059669">' + _newPrice + '€/mois</strong> <span style="font-size:0.75em;color:#059669">(-' + _discountPct + '%)</span>';
+      }
+    } catch(_pe) {}
     window._activePromoParrain = code;
     return;
   }
@@ -10964,15 +10983,32 @@ window.checkPromo = function() {
       try{ var lsU=JSON.parse(localStorage.getItem('users')||'{}'); if(lsU[owner]){lsU[owner].publicCode=publicCode;localStorage.setItem('users',JSON.stringify(lsU));} }catch(e){}
 
       var sent=false;
-      try{ if(typeof dmSendInvitationEmailJS==='function') sent=await dmSendInvitationEmailJS(nameVal,emailVal,publicCode,inviteKey); }catch(e){}
+      // 1. Essayer Resend (API Worker /api/send-email)
+      try{
+        if(typeof dmSendInvitationResend==='function'){
+          sent=await dmSendInvitationResend(nameVal,emailVal,inviteKey);
+          if(sent) console.log('[INVITE_SENT] Email envoyé via Resend à',emailVal);
+        }
+      }catch(e){ console.warn('[INVITE_SENT] Resend échec:',e); }
+      // 2. Fallback EmailJS
+      if(!sent){
+        try{
+          if(typeof dmSendInvitationEmailJS==='function'){
+            sent=await dmSendInvitationEmailJS(nameVal,emailVal,publicCode,inviteKey);
+            if(sent) console.log('[INVITE_SENT] Email envoyé via EmailJS à',emailVal);
+          }
+        }catch(e){ console.warn('[INVITE_SENT] EmailJS échec:',e); }
+      }
+      // 3. Fallback mailto popup si les deux ont échoué
       if(!sent&&typeof showInviteMailtoPopup==='function'){
         try{
           var token=(typeof buildResetToken==='function')?await buildResetToken(inviteKey,emailVal,48*60*60*1000):inviteKey;
           var link=(typeof mlAppBaseUrl==='function'?mlAppBaseUrl():location.origin+location.pathname)+'?invite='+encodeURIComponent(token);
           showInviteMailtoPopup(nameVal,emailVal,publicCode,link);
+          console.warn('[INVITE_SENT] Mailto popup affiché (Resend + EmailJS indisponibles)');
         }catch(e){}
       }
-      msg('✅ Médecin invité · statut Actif'+(sent?' · Email envoyé':''),'ok');
+      msg('✅ Médecin invité'+(sent?' · Email envoyé':'· (vérifiez le popup mailto)'),'ok');
       if(typeof showToast==='function') showToast('✅ Médecin invité avec succès','green');
       // Recharger la liste immédiatement (Firebase vient d'être écrit)
       try{ await window.dmLoadAndRender(); }catch(e){ console.warn('[INVITE_LIST_RENDER] reload err:',e); }
