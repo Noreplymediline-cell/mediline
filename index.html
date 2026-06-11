@@ -2723,11 +2723,18 @@ function getCabinetTrialStatus(code) {
   try {
     const cabs = JSON.parse(localStorage.getItem('cabinets')) || {};
     const cab = cabs[code];
-    if (!cab || !cab.trialStart) return { inTrial: false, expired: false };
     const TRIAL_MS = 30 * 24 * 3600 * 1000;
-    const elapsed = Date.now() - cab.trialStart;
+    // Fallback : si cabinet absent du cache, lire trialStart depuis users cache
+    let trialStart = cab && cab.trialStart;
+    if (!trialStart) {
+      const allU = JSON.parse(localStorage.getItem('users') || '{}');
+      const uData = allU[code] || null;
+      trialStart = uData && uData.trialStart;
+    }
+    if (!trialStart) return { inTrial: false, expired: false };
+    const elapsed = Date.now() - trialStart;
     if (elapsed < TRIAL_MS) return { inTrial: true, expired: false, daysLeft: Math.ceil((TRIAL_MS - elapsed) / 86400000) };
-    return { inTrial: false, expired: true };
+    return { inTrial: false, expired: true, daysLeft: 0 };
   } catch { return { inTrial: false, expired: false }; }
 }
 
@@ -2887,16 +2894,19 @@ async function handlePayment() {
   if (!stripe) { msgEl.textContent = 'Erreur : rechargez la page.'; msgEl.className = 'pay-msg err'; btn.disabled = false; btnTxt.textContent = '🔒 Payer'; spin.style.display = 'none'; return; }
   try {
     const { paymentMethod, error } = await stripe.createPaymentMethod({ type: 'card', card: cardNumber, billing_details: { name, email } });
-    if (error) { msgEl.textContent = '❌ ' + error.message; msgEl.className = 'pay-msg err'; }
-    else {
-      await markDoctorPaid(name, email, false, { customerId: paymentMethod.id, subscriptionId: '' });
-      // Consommer les crédits APRÈS validation Stripe réelle (pas en cas d'erreur)
-      if (typeof docCurrentUser !== 'undefined' && docCurrentUser && typeof consumeReferralCredits === 'function') {
-        var priceNum = currentPlan === 'cabinet_40' ? 40 : currentPlan === 'cabinet_90' ? 90 : 0;
-        if (priceNum > 0) { consumeReferralCredits(docCurrentUser, priceNum).catch(function(){}); }
-      }
-      closeModal(); showToast('🎉 Abonnement activé ! Bienvenue sur MediLine.', 'green');
-      setTimeout(() => afterPaymentRedirect(name, email), 1200);
+    if (error) {
+      msgEl.textContent = '❌ ' + error.message; msgEl.className = 'pay-msg err';
+    } else {
+      // ── SÉCURITÉ : le paiement n'est PAS validé ici côté front. ──────────
+      // createPaymentMethod crée uniquement un token — aucun débit n'a lieu.
+      // hasPaid ne sera mis à true QUE par le webhook Stripe (côté serveur).
+      // En attendant, on enregistre un état "pending_payment" pour info.
+      // ─────────────────────────────────────────────────────────────────────
+      await mlSetPaymentPending(name, email, paymentMethod.id, currentPlan);
+      msgEl.textContent = '⏳ Paiement en attente de confirmation. Vous recevrez un email dès validation.';
+      msgEl.className = 'pay-msg';
+      showToast('⏳ Paiement en cours de validation…', 'blue');
+      btn.disabled = false; spin.style.display = 'none';
     }
   } catch (e) { msgEl.textContent = '❌ Erreur inattendue.'; msgEl.className = 'pay-msg err'; }
   finally { btn.disabled = false; btnTxt.textContent = '🔒 Payer en sécurité'; spin.style.display = 'none'; }
@@ -3058,10 +3068,13 @@ async function handlePcoPayment() {
     if (error) {
       msgEl.textContent = '❌ ' + error.message; msgEl.className = 'pay-msg err';
     } else {
-      await markDoctorPaid(name, email, false, { customerId: paymentMethod.id, subscriptionId: '' });
-      sessionStorage.setItem('ml_prefill', JSON.stringify({ name, email }));
-      showToast('🎉 Abonnement activé ! Bienvenue sur MediLine.', 'green');
-      setTimeout(() => afterPaymentRedirect(name, email), 1200);
+      // ── SÉCURITÉ : paiement non validé côté front ─────────────────────
+      // Le débit réel et hasPaid=true seront gérés par le webhook Stripe.
+      // ─────────────────────────────────────────────────────────────────
+      await mlSetPaymentPending(name, email, paymentMethod.id, pcoCurrentPlan);
+      msgEl.textContent = '⏳ Paiement en attente de confirmation. Vous recevrez un email dès validation.';
+      msgEl.className = 'pay-msg';
+      showToast('⏳ Paiement en cours de validation…', 'blue');
     }
   } catch (e) {
     msgEl.textContent = '❌ Erreur inattendue.'; msgEl.className = 'pay-msg err';
@@ -7182,11 +7195,18 @@ async function docLogin() {
         doctorCode: minimalPublicCode,
         hasPaid: false,
         role: 'owner',
-        trialStart: Date.now(),
+        trialStart: Date.now(), // premier login : création du trialStart
         _minimal: true
       };
       await fbSetUserByUid(uid, userData).catch(() => {});
-      await fbSetCabinetByUid(uid, { name: '', adresse: '', cabinetId: uid, code: minimalPublicCode, publicCode: minimalPublicCode, cabinetCode: minimalPublicCode, ownerUid: uid, trialStart: Date.now() }).catch(() => {});
+      // trialStart cabinet : seulement si le cabinet n'existe pas encore
+      try {
+        const _existingCab = await firebase.database().ref('cabinets/' + uid + '/trialStart').get().catch(() => null);
+        const _cabTrialStart = (_existingCab && _existingCab.exists()) ? _existingCab.val() : Date.now();
+        await fbSetCabinetByUid(uid, { name: '', adresse: '', cabinetId: uid, code: minimalPublicCode, publicCode: minimalPublicCode, cabinetCode: minimalPublicCode, ownerUid: uid, trialStart: _cabTrialStart }).catch(() => {});
+      } catch(_e) {
+        await fbSetCabinetByUid(uid, { name: '', adresse: '', cabinetId: uid, code: minimalPublicCode, publicCode: minimalPublicCode, cabinetCode: minimalPublicCode, ownerUid: uid, trialStart: Date.now() }).catch(() => {});
+      }
       console.warn('[ML] Profil minimal cree pour uid:', uid, '| publicCode:', minimalPublicCode);
     }
   } else {
@@ -7630,6 +7650,29 @@ async function markDoctorPaid(nameOrEmail, email, isFounder = false, stripeData 
 }
 
 
+// ── mlSetPaymentPending : enregistre un paiement en attente de validation webhook ──
+// hasPaid reste false jusqu'à confirmation serveur (webhook Stripe).
+async function mlSetPaymentPending(nameOrEmail, email, paymentMethodId, plan) {
+  const uid = docCurrentUser;
+  if (!uid) { console.warn('[ML PAY] mlSetPaymentPending — pas de session'); return; }
+  const pendingData = {
+    paymentStatus:    'pending_webhook',   // sera mis à 'confirmed' par le webhook
+    pendingPaymentMethodId: paymentMethodId,
+    pendingPlan:      plan || 'cabinet_40',
+    pendingAt:        Date.now(),
+    hasPaid:          false                // PAS de hasPaid=true avant confirmation
+  };
+  try {
+    await fbUpdateUserByUid(uid, pendingData);
+    const lc = JSON.parse(localStorage.getItem('users') || '{}');
+    lc[uid] = Object.assign(lc[uid] || {}, pendingData);
+    localStorage.setItem('users', JSON.stringify(lc));
+    console.log('[ML PAY] Paiement en attente enregistré — uid:', uid, '| plan:', plan);
+  } catch(e) {
+    console.warn('[ML PAY] mlSetPaymentPending write error:', e);
+  }
+}
+
 // ══════════════════════════════════════════════════════════════════
 //  GESTION DES MÉDECINS — Section compte principal
 // ══════════════════════════════════════════════════════════════════
@@ -7769,7 +7812,8 @@ async function dmInitSection() {
         name: (userData.name || '') + (userData.name ? ' — Cabinet' : 'Cabinet médical'),
         adresse: '', cabinetId, code: cabinetId,
         lat: null, lng: null,
-        createdAt: Date.now(), trialStart: Date.now(),
+        createdAt: Date.now(),
+        // trialStart sera lu depuis users/{uid} si existant — ne jamais réécrire
         plan: 'cabinet_90', subscriptionStatus: 'trial',
         ownerUid: docCurrentUser
       };
@@ -10257,7 +10301,9 @@ function applyReferralDiscount(promoCode) {
 /* ─────────────────────────────────────────────
    ADMIN — logique
 ───────────────────────────────────────────── */
-var ADMIN_PW_HASH = btoa('mediline2025!admin'); // Ne pas modifier sans mettre à jour la vérification
+// SÉCURITÉ : mot de passe admin supprimé du code source.
+// L'accès admin est désactivé côté front.
+// Pour réactiver : implémenter une vérification Firebase Custom Claims côté serveur.
 var adminAuthenticated = false;
 var adminAllUsers = {};
 var adminAllCabinets = {};
@@ -10271,17 +10317,13 @@ var adminAllCabinets = {};
 })();
 
 function checkAdminPw() {
-  var pw = document.getElementById('adminPwInp').value;
+  // SÉCURITÉ : accès admin désactivé côté front.
+  // Le mot de passe en base64 a été supprimé du code source.
+  // Pour réactiver l'admin, implémenter une vérification Firebase Custom Claims
+  // ou une authentification serveur (Cloudflare Worker + secret d'environnement).
   var err = document.getElementById('adminPwErr');
-  if (btoa(pw) === ADMIN_PW_HASH) {
-    adminAuthenticated = true;
-    document.getElementById('adminLoginWall').style.display = 'none';
-    document.getElementById('adminDashboard').style.display = 'block';
-    loadAdminData();
-  } else {
-    if (err) err.textContent = '❌ Mot de passe incorrect.';
-    setTimeout(function(){ if(err) err.textContent=''; }, 2000);
-  }
+  if (err) err.textContent = '🔒 Accès admin désactivé. Contactez l\'équipe technique.';
+  console.warn('[ADMIN] Accès admin désactivé — authentification serveur requise.');
 }
 
 function adminTab(name, el) {
