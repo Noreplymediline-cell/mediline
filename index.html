@@ -8336,21 +8336,45 @@ async function dmLoadAndRender() {
     const doctors = await fbGetCabinetDoctors(cabinetId);
     console.log('[ML DEBUG] doctors loaded:', doctors);
     const _ownerEmailForFilter = ((fbAuth.currentUser && fbAuth.currentUser.email) || '').toLowerCase();
-    const entries = Object.values(doctors || {})
+
+    // Étape 1 : filtrer
+    const rawEntries = Object.values(doctors || {})
       .filter(d => {
-        // Ne jamais afficher le médecin principal dans sa propre liste
+        const dName = (d.name || d.displayName || d.nom || '').trim();
+        const de = (d.email || d.mail || '').trim().toLowerCase();
+        // Masquer entrées sans nom ET sans email (cartes fantômes)
+        if (!dName && !de) return false;
         const dUid = String(d.uid || d.id || '');
         if (dUid && dUid === docCurrentUser) return false;
-        const de = (d.email || d.mail || '').trim().toLowerCase();
         if (_ownerEmailForFilter && de && de === _ownerEmailForFilter) return false;
-        // Exclure toute entrée ayant role=owner ou role=main
         if (d.role === 'owner' || d.role === 'main') return false;
-        // Garder uniquement les vrais invités : doivent avoir au moins un marqueur d'invitation
         const hasInviteMarker = !!(d.invitedBy || d.addedBy || (d.billingOwner && String(d.billingOwner) !== docCurrentUser));
         if (!hasInviteMarker) return false;
         return true;
-      })
-      .sort((a,b) => (a.addedAt||0) - (b.addedAt||0));
+      });
+
+    // Étape 2 : dédupliquer par email — fusionner doublons, prendre statut actif si disponible
+    const emailMap = {};
+    rawEntries.forEach(d => {
+      const key = (d.email || d.mail || '').trim().toLowerCase() || ('__nomail_' + (d.uid||d.id||d._key||Math.random()));
+      if (!emailMap[key]) {
+        emailMap[key] = d;
+      } else {
+        const ex = emailMap[key];
+        const isActive = d.status === 'active' || d.active === true
+          || ex.status === 'active' || ex.active === true;
+        const realUid = (ex.uid && !ex.uid.startsWith('invite_')) ? ex.uid
+          : (d.uid && !d.uid.startsWith('invite_')) ? d.uid : ex.uid;
+        emailMap[key] = Object.assign({}, ex, d, {
+          name: d.name || d.displayName || ex.name || ex.displayName || '',
+          status: isActive ? 'active' : 'pending_activation',
+          active: isActive,
+          uid: realUid, id: realUid
+        });
+      }
+    });
+    const entries = Object.values(emailMap).sort((a,b) => (a.addedAt||0) - (b.addedAt||0));
+
     if (!entries.length) {
       listEl.innerHTML = '<div class="dm-empty">Aucun médecin invité pour l\'instant.<br><span style="font-size:11px">Utilisez le bouton ci-dessus pour inviter un confrère.</span></div>';
       return;
@@ -11212,39 +11236,79 @@ window.checkPromo = function() {
       var docs=s.exists()?(s.val()||{}):{};
       // [INVITE_LIST_RENDER] — log complet des médecins chargés depuis Firebase
       console.log('[INVITE_LIST_RENDER] doctors Firebase count:', Object.keys(docs).length, '| keys:', Object.keys(docs).join(','));
-      var arr=Object.keys(docs).map(function(k){ var d=docs[k]||{}; d._key=k; return d; })
+      // Étape 1 : collecter toutes les entrées valides
+      var rawArr=Object.keys(docs).map(function(k){ var d=docs[k]||{}; d._key=k; return d; })
         .filter(function(d){
+          // Exclure entrées sans nom ET sans email (cartes fantômes)
+          var dName=(d.name||d.displayName||d.nom||'').trim();
+          var dEmail=cleanEmail(d.email||d.mail||'');
+          if(!dName&&!dEmail){ console.log('[DM] exclu (sans nom ni email):', d._key); return false; }
           // Exclure le owner lui-même (par uid)
           if(String(d.uid||d.id||'')===String(uid)){ console.log('[DM] exclu (même uid):', d.uid||d.id); return false; }
           // Exclure le owner par email
-          var de=cleanEmail(d.email||d.mail||'');
-          if(ownerEmail&&de&&de===ownerEmail){ console.log('[DM] exclu (même email owner):', de); return false; }
+          if(ownerEmail&&dEmail&&dEmail===ownerEmail){ console.log('[DM] exclu (même email owner):', dEmail); return false; }
           // Exclure toute entrée ayant role=owner
-          if(d.role==='owner'||d.role==='main'){ console.log('[DM] exclu (role owner):', d.email||d._key); return false; }
-          // Garder uniquement les vrais invités : doivent avoir au moins un marqueur d'invitation
+          if(d.role==='owner'||d.role==='main'){ console.log('[DM] exclu (role owner):', dEmail||d._key); return false; }
+          // Garder uniquement les vrais invités
           var hasInviteMarker=!!(d.invitedBy||d.addedBy||(d.billingOwner&&String(d.billingOwner)!==String(uid)));
-          if(!hasInviteMarker){ console.log('[DM] exclu (pas de marqueur invitation):', d.email||d._key); return false; }
+          if(!hasInviteMarker){ console.log('[DM] exclu (pas de marqueur invitation):', dEmail||d._key); return false; }
           return true;
         });
+
+      // Étape 2 : dédupliquer par email normalisé — une seule carte par médecin
+      // En cas de doublons sur le même email, fusionner : priorité à l'entrée la plus récente
+      // et au statut "actif" s'il existe parmi les doublons
+      var emailMap={};
+      rawArr.forEach(function(d){
+        var dEmail=cleanEmail(d.email||d.mail||'') || ('__nomail_'+d._key);
+        if(!emailMap[dEmail]){
+          emailMap[dEmail]=d;
+        } else {
+          var existing=emailMap[dEmail];
+          // Fusionner : prendre le nom non vide
+          var mergedName=d.name||d.displayName||existing.name||existing.displayName||'';
+          // Prendre le statut actif si l'un des deux est actif
+          var existingActive=existing.status==='active'||existing.active===true;
+          var newActive=d.status==='active'||d.active===true;
+          var mergedStatus=existingActive||newActive?'active':'pending_activation';
+          // Prendre le uid Firebase Auth réel si disponible (commence par un vrai uid, pas 'invite_')
+          var existingUid=existing.uid||existing.id||existing._key||'';
+          var newUid=d.uid||d.id||d._key||'';
+          var mergedUid=(!existingUid.startsWith('invite_')&&existingUid)?existingUid:
+                        (!newUid.startsWith('invite_')&&newUid)?newUid:existingUid;
+          emailMap[dEmail]=Object.assign({},existing,d,{
+            name:mergedName,
+            status:mergedStatus,
+            active:mergedStatus==='active',
+            uid:mergedUid,id:mergedUid
+          });
+          console.log('[DM] fusionné doublon email:', dEmail, '| statut final:', mergedStatus);
+        }
+      });
+      var arr=Object.values(emailMap);
+
       if(!arr.length){ listEl.innerHTML='<div class="dm-empty">Aucun médecin invité pour l\'instant.<br><span style="font-size:11px">Utilisez le bouton ci-dessus pour inviter un confrère.</span></div>'; return; }
       function esc(s){ return String(s||'').replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];}); }
       listEl.innerHTML=arr.map(function(d){
-        var name=d.name||d.displayName||d.nom||'Médecin';
+        var name=d.name||d.displayName||d.nom||'';
         var email=d.email||d.mail||'';
+        // Ne jamais afficher une carte sans nom ni email
+        if(!name&&!email) return '';
         var spec=d.specialty||d.specialite||'';
-        var active=d.status==='active'||d.active===true||d.invitationPending===false;
+        var active=d.status==='active'||d.active===true;
         var badge=active?'✅ Actif':'📧 Invitation envoyée';
         var badgeCls=active?'dm-status-active':'dm-status-pending';
         var docUid=d.uid||d.id||d._key||'';
+        var initLetter=(name||email||'?').charAt(0).toUpperCase();
         return '<div class="dm-doctor-row">'+
-          '<div class="dm-doctor-av" style="background:#2563eb;color:#fff;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0">'+String(name).charAt(0).toUpperCase()+'</div>'+
-          '<div class="dm-doctor-info"><div class="dm-doctor-name">'+esc(name)+'</div><div class="dm-doctor-email">'+esc(email)+'</div>'+(spec?'<div class="dm-doctor-spec">'+esc(spec)+'</div>':'')+'</div>'+
+          '<div class="dm-doctor-av" style="background:#2563eb;color:#fff;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0">'+initLetter+'</div>'+
+          '<div class="dm-doctor-info"><div class="dm-doctor-name">'+esc(name||'—')+'</div><div class="dm-doctor-email">'+esc(email||'—')+'</div>'+(spec?'<div class="dm-doctor-spec">'+esc(spec)+'</div>':'')+'</div>'+
           '<div class="dm-status-badge '+badgeCls+'">'+badge+'</div>'+
           '<button class="dm-action-btn" onclick="dmToggleStatus(\''+esc(docUid)+'\',\''+(active?'disabled':'active')+'\')">'+
           (active?'Désactiver':'Réactiver')+'</button>'+
-          '<button class="dm-action-btn" style="background:rgba(239,68,68,.1);color:#ef4444;border-color:rgba(239,68,68,.2);margin-left:6px" onclick="dmDeleteDoctor(\''+esc(docUid)+'\',\''+esc(name)+'\')">🗑</button>'+
+          '<button class="dm-action-btn" style="background:rgba(239,68,68,.1);color:#ef4444;border-color:rgba(239,68,68,.2);margin-left:6px" onclick="dmDeleteDoctor(\''+esc(docUid)+'\',\''+esc(name||email)+'\')">🗑</button>'+
         '</div>';
-      }).join('');
+      }).filter(Boolean).join('');
     }catch(e){
       console.warn('[ML v8] dmLoadAndRender:',e);
       listEl.innerHTML='<div class="dm-empty">Impossible de charger la liste médecins.</div>';
@@ -11285,11 +11349,11 @@ window.checkPromo = function() {
       var doctorEntry={
         uid:inviteKey,id:inviteKey,inviteId:inviteKey,
         name:nameVal,displayName:nameVal,email:emailVal,mail:emailVal,
-        specialty:specVal,role:'invited_doctor',status:'active',active:true,
-        invitationPending:false,addedBy:owner,invitedBy:owner,billingOwner:owner,ownerUid:owner,
+        specialty:specVal,role:'invited_doctor',status:'pending_activation',active:false,
+        invitationPending:true,addedBy:owner,invitedBy:owner,billingOwner:owner,ownerUid:owner,
         cabinetId:owner,cabinetCode:publicCode,publicCode:publicCode,
         hasPaid:true,subscriptionStatus:'included_by_invitation',
-        addedAt:n,invitationCreatedAt:n,invitationActivatedAt:n
+        addedAt:n,invitationCreatedAt:n
       };
       await db().ref('cabinets/'+owner+'/doctors/'+inviteKey).update(doctorEntry);
       await db().ref('invitations/'+inviteKey).update(doctorEntry);
@@ -11428,9 +11492,10 @@ window.checkPromo = function() {
       await db().ref('users/'+u.uid).update(patch).catch(function(e){
         console.warn('[ML v8] profil invité write:',e&&(e.code||e.message));
       });
-      // Mettre à jour les entrées dans cabinets/{owner}/doctors/
+      // Mettre à jour UNIQUEMENT l'entrée invite_* existante (pas de doublon sous u.uid)
+      // On enrichit l'entrée invitation avec le vrai uid Firebase Auth
       await db().ref('cabinets/'+owner+'/doctors/'+inviteKey).update(patch).catch(function(){});
-      await db().ref('cabinets/'+owner+'/doctors/'+u.uid).update(patch).catch(function(){});
+      // NE PAS écrire sous cabinets/{owner}/doctors/{u.uid} — évite la deuxième carte
       // Marquer l'invitation comme activée
       await db().ref('invitations/'+inviteKey).update({
         status:'active',active:true,invitationPending:false,
