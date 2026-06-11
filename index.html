@@ -7338,30 +7338,6 @@ async function docLogin() {
     console.warn('[ML] rattachement invitation avant paywall impossible:', e);
   }
 
-  // [INVITED_LOGIN_ACCESS] — détection invité STRICTE :
-  // un invité a forcément un billingOwner/invitedBy/addedBy DIFFÉRENT de son propre uid
-  var _invOwner = userData.billingOwner || userData.invitedBy || userData.addedBy || null;
-  var _isStrictInvited = !!(
-    (_invOwner && String(_invOwner) !== String(uid)) ||
-    userData.role === 'invited_doctor' || userData.role === 'invitedDoctor' ||
-    userData.subscriptionStatus === 'included_by_invitation'
-  );
-  console.log('[INVITED_LOGIN_ACCESS] uid:', uid,
-    '| role:', userData.role,
-    '| billingOwner:', userData.billingOwner,
-    '| invitedBy:', userData.invitedBy,
-    '| addedBy:', userData.addedBy,
-    '| _isStrictInvited:', _isStrictInvited);
-  if (_isStrictInvited) {
-    // Médecin invité confirmé : accès direct, jamais showPaywall
-    console.log('[INVITED_LOGIN_ACCESS] → accès direct dashboard. ownerUid:', _invOwner);
-    localStorage.setItem('ml_session', uid);
-    if (typeof mlStartInactivity === 'function') mlStartInactivity();
-    openDocDashboard(uid, userData);
-    return;
-  }
-
-  // Médecin principal : vérification abonnement normale
   let hasAccess =
     userData.hasPaid ||
     userData.isFounder ||
@@ -8715,14 +8691,7 @@ function showPage(id) {
       if (allCabs) localStorage.setItem('cabinets', JSON.stringify(allCabs));
     }
 
-    // Médecin invité : billingOwner/invitedBy/addedBy doit être DIFFÉRENT du uid lui-même
-    var _invOwnerR = ud.billingOwner || ud.invitedBy || ud.addedBy || null;
-    var _isInvRestore = !!(
-      (_invOwnerR && String(_invOwnerR) !== String(key)) ||
-      ud.role === 'invited_doctor' || ud.role === 'invitedDoctor' ||
-      ud.subscriptionStatus === 'included_by_invitation'
-    );
-    var hasAccess = ud.hasPaid || ud.isFounder || ud.addedBy || _isInvRestore;
+    var hasAccess = ud.hasPaid || ud.isFounder || ud.addedBy;
     if (!hasAccess && cabinetData && cabinetData.trialStart) {
       hasAccess = (Date.now() - cabinetData.trialStart) < 30 * 24 * 3600 * 1000;
     }
