@@ -1292,14 +1292,29 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
     var hasAccess = userData.hasPaid || userData.isFounder || userData.addedBy || _isInvitedRoleSession;
     var _hasAccessReason = userData.hasPaid ? 'hasPaid' : userData.isFounder ? 'isFounder' : userData.addedBy ? 'addedBy' :
       _isInvitedRoleSession ? 'role=invited_doctor/included_by_invitation' : 'aucun';
-    if (!hasAccess && cabinetData && cabinetData.trialStart) {
+    // Trial : valide uniquement si subscriptionStatus='trial' ET trialStart défini (activé via page paiement)
+    if (!hasAccess && cabinetData && cabinetData.trialStart && cabinetData.subscriptionStatus === 'trial') {
       hasAccess = (Date.now() - cabinetData.trialStart) < 30 * 24 * 3600 * 1000;
-      if (hasAccess) _hasAccessReason = 'cabinet.trialStart (en cours)';
+      if (hasAccess) _hasAccessReason = 'cabinet.trialStart (essai actif)';
     }
-    if (!hasAccess && userData.trialStart) {
-      hasAccess = Date.now() < userData.trialStart + 30 * 24 * 3600 * 1000;
-      if (hasAccess) _hasAccessReason = 'userData.trialStart (en cours)';
+    if (!hasAccess && userData.trialStart && (userData.subscriptionStatus === 'trial' || userData.subscriptionStatus === 'pro_trial')) {
+      hasAccess = Date.now() < userData.trialStart + (userData.trialDays || 30) * 24 * 3600 * 1000;
+      if (hasAccess) _hasAccessReason = 'userData.trialStart (essai actif)';
     }
+    // LOG ACCESS_CHECK
+    console.log('[ACCESS_CHECK]', JSON.stringify({
+      uid, plan: userData.plan || (cabinetData && cabinetData.plan) || null,
+      subscriptionStatus: userData.subscriptionStatus || (cabinetData && cabinetData.subscriptionStatus),
+      hasPaid: userData.hasPaid || false,
+      trialStart: userData.trialStart || (cabinetData && cabinetData.trialStart) || null,
+      trialDaysLeft: (function() {
+        var ts = userData.trialStart || (cabinetData && cabinetData.trialStart);
+        if (!ts) return null;
+        return Math.max(0, Math.ceil(((userData.trialDays||30)*86400000 - (Date.now()-ts)) / 86400000));
+      })(),
+      hasValidTrial: hasAccess && _hasAccessReason.includes('trial'),
+      hasAccess, reason: _hasAccessReason
+    }));
 
     var _sessionOwnerUid = userData.billingOwner || userData.invitedBy || userData.addedBy || null;
     console.log('── résultat ─────────────────────────────────');
@@ -2760,14 +2775,20 @@ function canAddDoctorToCabinet(code) {
   const current = countDoctorsInCabinet(code);
   const trial = getCabinetTrialStatus(code);
   const hasPaidSub = cab.subscriptionStatus === 'active';
-  // subscriptionStatus:'trial' = compte créé mais pas encore payé → essai actif par définition
-  const isTrialStatus = cab.subscriptionStatus === 'trial';
+  // Trial valide uniquement si subscriptionStatus=trial|pro_trial activé via page paiement
+  const isTrialStatus = cab.subscriptionStatus === 'trial' || cab.subscriptionStatus === 'pro_trial';
+  const isPending = cab.subscriptionStatus === 'pending' || !cab.subscriptionStatus;
 
-  // ── Essai actif (trialStart présent) → accès Pro complet ─────────────
-  if (trial.inTrial && !hasPaidSub) {
+  // ── Compte pending sans abonnement ni essai → bloquer ─────────────────
+  if (isPending && !trial.inTrial) {
+    return { allowed: false, reason: 'Activez votre essai ou abonnement pour inviter des médecins.', current, max: 0 };
+  }
+
+  // ── Essai actif (trialStart présent + subscriptionStatus=trial) ────────
+  if (trial.inTrial && isTrialStatus && !hasPaidSub) {
     return {
       allowed: true, current, max: 'illimité',
-      plan: 'cabinet_90', planName: 'Cabinet Pro (essai)',
+      plan: 'pro_trial', planName: 'Cabinet Pro (essai)',
       trialDaysLeft: trial.daysLeft
     };
   }
@@ -2776,7 +2797,7 @@ function canAddDoctorToCabinet(code) {
   if (isTrialStatus && !trial.expired) {
     return {
       allowed: true, current, max: 'illimité',
-      plan: 'cabinet_90', planName: 'Cabinet Pro (essai)',
+      plan: 'pro_trial', planName: 'Cabinet Pro (essai)',
       trialActive: true
     };
   }
@@ -2880,13 +2901,14 @@ async function handlePayment() {
     await new Promise(r => setTimeout(r, 1200)); closeModal(); showToast('✅ Demande envoyée ! Notre équipe vous contacte sous 24h.', 'blue');
     btn.disabled = false; btnTxt.textContent = '🔒 Envoyer ma demande'; spin.style.display = 'none'; return;
   }  if (promoApplied) {
-    await new Promise(r => setTimeout(r, 1200));
-    await markDoctorPaid(name, email, document.getElementById('promoInput').value.trim().toUpperCase() === _FOUNDER_CODE.toUpperCase());
-    // Consommer les crédits APRÈS validation réelle
-    if (typeof docCurrentUser !== 'undefined' && docCurrentUser && typeof consumeReferralCredits === 'function') {
-      var priceNum = currentPlan === 'cabinet_40' ? 40 : currentPlan === 'cabinet_90' ? 90 : 0;
-      if (priceNum > 0) { consumeReferralCredits(docCurrentUser, priceNum).catch(function(){}); }
-    }
+    await new Promise(r => setTimeout(r, 800));
+    const _appliedCode = document.getElementById('promoInput').value.trim().toUpperCase();
+    const _isFounderCode = _appliedCode === _FOUNDER_CODE.toUpperCase();
+    const _promos = _getPromos();
+    const _promoMeta = _promos[_appliedCode];
+    const _trialDays = _promoMeta ? (_promoMeta.days || 30) : 30;
+    // Activer le trial proprement via mlActivateTrial
+    await mlActivateTrial(name, email, _appliedCode, _trialDays, _isFounderCode);
     closeModal(); showToast('🎉 Essai activé ! Bienvenue sur MediLine.', 'green');
     setTimeout(() => afterPaymentRedirect(name, email), 1000);
     btn.disabled = false; spin.style.display = 'none'; return;
@@ -3063,9 +3085,13 @@ async function handlePcoPayment() {
   }
 
   if (pcoPromoApplied) {
-    await new Promise(r => setTimeout(r, 1200));
-    const isFounder = document.getElementById('pcoPromoInput').value.trim().toUpperCase() === _FOUNDER_CODE.toUpperCase();
-    await markDoctorPaid(name, email, isFounder);
+    await new Promise(r => setTimeout(r, 800));
+    const _pcoCode = document.getElementById('pcoPromoInput').value.trim().toUpperCase();
+    const _pcoFounder = _pcoCode === _FOUNDER_CODE.toUpperCase();
+    const _pcoPromos = _getPromos();
+    const _pcoMeta = _pcoPromos[_pcoCode];
+    const _pcoDays = _pcoMeta ? (_pcoMeta.days || 30) : 30;
+    await mlActivateTrial(name, email, _pcoCode, _pcoDays, _pcoFounder);
     showToast('🎉 Essai activé ! Bienvenue sur MediLine.', 'green');
     btn.disabled = false; spin.style.display = 'none';
     setTimeout(() => afterPaymentRedirect(name, email), 1000);
@@ -3595,14 +3621,16 @@ async function docRegister() {
     sponsoredBy: sponsoredBy || null,
     refCodeUsed: parrainRefCode ? parrainRefCode.trim().toUpperCase() : null,
     googleLink: '', hasPaid: false,
+    subscriptionStatus: 'pending',  // pas d'essai automatique — activation via page paiement
     specialty: spec, role: 'owner', createdAt: Date.now()
   };
   const cabinetRecord = {
     name: cabinet, adresse, cabinetId, code: publicCode,
     publicCode, cabinetCode: publicCode,
     lat: null, lng: null,
-    createdAt: Date.now(), trialStart: Date.now(),
-    plan: 'cabinet_90', subscriptionStatus: 'trial', ownerUid
+    createdAt: Date.now(),
+    plan: null, subscriptionStatus: 'pending', ownerUid
+    // trialStart et subscriptionStatus sont définis UNIQUEMENT via la page paiement/code essai
   };
 
   try {
@@ -4892,6 +4920,23 @@ async function checkSessionAccess() {
     cabinetData = cabs[cabinetId] || null;
   }
 
+  // LOG [ACCESS_CHECK]
+  const _csaTrialDaysLeft = (function() {
+    const ts = u.trialStart || (cabinetData && cabinetData.trialStart);
+    if (!ts) return null;
+    return Math.max(0, Math.ceil(((u.trialDays || cabinetData && cabinetData.trialDays || 30)*86400000 - (Date.now()-ts)) / 86400000));
+  })();
+  console.log('[ACCESS_CHECK]', JSON.stringify({
+    uid: docCurrentUser,
+    plan: u.plan || (cabinetData && cabinetData.plan) || null,
+    subscriptionStatus: u.subscriptionStatus || (cabinetData && cabinetData.subscriptionStatus) || null,
+    hasPaid: u.hasPaid || false,
+    trialStart: u.trialStart || (cabinetData && cabinetData.trialStart) || null,
+    trialDaysLeft: _csaTrialDaysLeft,
+    hasValidTrial: !!(u.trialStart && (u.subscriptionStatus==='trial'||u.subscriptionStatus==='pro_trial') && _csaTrialDaysLeft > 0),
+    hasAccess: null, reason: 'checkSessionAccess evaluating'
+  }));
+
   // Owner founder → toujours accès
   if (u.isFounder) return;
 
@@ -4917,15 +4962,25 @@ async function checkSessionAccess() {
     return;
   }
 
-  // Essai en cours → accès
-  if (cabinetData && cabinetData.trialStart) {
+  // Essai en cours → accès uniquement si subscriptionStatus=trial et non expiré
+  const _cabSubStatus = (cabinetData && cabinetData.subscriptionStatus) || u.subscriptionStatus || 'pending';
+  const _trialMs = ((cabinetData && cabinetData.trialDays) || u.trialDays || 30) * 24 * 3600 * 1000;
+  if (cabinetData && cabinetData.trialStart && (_cabSubStatus === 'trial' || _cabSubStatus === 'pro_trial')) {
     const elapsed = Date.now() - cabinetData.trialStart;
-    if (elapsed < 30 * 24 * 3600 * 1000) { console.log('[ML ACCESS] Accès autorisé – trial en cours.'); return; }
+    if (elapsed < _trialMs) {
+      console.log('[ML ACCESS] Accès autorisé – trial en cours. Jours restants:', Math.ceil((_trialMs - elapsed) / 86400000));
+      return;
+    }
     console.log('[ML ACCESS] Trial expiré – showPaywall(expired).');
     showPaywall('expired');
     return;
   }
-
+  // Compte sans abonnement ni essai actif
+  if (_cabSubStatus === 'pending' || !cabinetData || !cabinetData.trialStart) {
+    console.warn('[ML ACCESS] Compte sans abonnement actif (état: ' + _cabSubStatus + ') → page paiement.');
+    showPage('payment');
+    return;
+  }
   console.log('[ML ACCESS] Aucun abonnement valide – showPaywall(new). cabinetData:', cabinetData);
   showPaywall('new');
 }
@@ -7390,12 +7445,28 @@ async function docLogin() {
     userData.addedBy ||
     userData.role === 'invited_doctor' ||
     userData.subscriptionStatus === 'included_by_invitation';
-  if (!hasAccess && cabinetData && cabinetData.trialStart) {
+  // Trial valide uniquement si activé via page paiement (subscriptionStatus=trial ou pro_trial)
+  if (!hasAccess && cabinetData && cabinetData.trialStart && cabinetData.subscriptionStatus === 'trial') {
     hasAccess = (Date.now() - cabinetData.trialStart) < 30 * 24 * 3600 * 1000;
   }
-  if (!hasAccess && userData.trialStart) {
-    hasAccess = Date.now() < userData.trialStart + 30 * 24 * 3600 * 1000;
+  if (!hasAccess && userData.trialStart && (userData.subscriptionStatus === 'trial' || userData.subscriptionStatus === 'pro_trial')) {
+    hasAccess = Date.now() < userData.trialStart + (userData.trialDays || 30) * 24 * 3600 * 1000;
   }
+  // LOG ACCESS_CHECK
+  const _trialDaysLeftLogin = (function() {
+    const ts = userData.trialStart || (cabinetData && cabinetData.trialStart);
+    if (!ts) return null;
+    return Math.max(0, Math.ceil(((userData.trialDays||30)*86400000 - (Date.now()-ts)) / 86400000));
+  })();
+  console.log('[ACCESS_CHECK]', JSON.stringify({
+    uid, plan: userData.plan || (cabinetData && cabinetData.plan) || null,
+    subscriptionStatus: userData.subscriptionStatus || (cabinetData && cabinetData.subscriptionStatus),
+    hasPaid: userData.hasPaid || false,
+    trialStart: userData.trialStart || (cabinetData && cabinetData.trialStart) || null,
+    trialDaysLeft: _trialDaysLeftLogin,
+    hasValidTrial: !!(userData.trialStart && (userData.subscriptionStatus==='trial'||userData.subscriptionStatus==='pro_trial')),
+    hasAccess, reason: hasAccess ? 'ok' : 'no_active_subscription'
+  }));
 
   // ── Diagnostic complet (uid, email, userData, inviteFound, ownerUid, hasAccess, reason) ──
   {
@@ -7443,13 +7514,22 @@ async function docLogin() {
       return;
     }
     console.error('[ML PAYWALL FINAL] Aucune invitation trouvée — paywall affiché. uid:', uid, 'email:', emailToUse);
-    const expiredTrial = cabinetData && cabinetData.trialStart
-      && (Date.now() - cabinetData.trialStart) >= 30 * 24 * 3600 * 1000;
+    const _finalSubStatus = userData.subscriptionStatus || (cabinetData && cabinetData.subscriptionStatus) || 'pending';
+    const _finalTrialExpired = cabinetData && cabinetData.trialStart
+      && (Date.now() - cabinetData.trialStart) >= (userData.trialDays || 30) * 24 * 3600 * 1000;
+    // Compte sans abonnement ni essai → page paiement (pas de paywall)
+    if (_finalSubStatus === 'pending' || (!userData.trialStart && !(cabinetData && cabinetData.trialStart))) {
+      console.log('[ACCESS_CHECK] docLogin → subscriptionStatus=pending, redirection paiement. uid:', uid);
+      docCurrentUser = uid;
+      localStorage.setItem('ml_session', uid);
+      showPage('payment');
+      return;
+    }
     // Anti-boucle : si déjà sur la page login/paywall, ne pas redéclencher
     if (!sessionStorage.getItem('ml_paywall_shown')) {
       sessionStorage.setItem('ml_paywall_shown', '1');
       docShow('login');
-      showPaywall(expiredTrial ? 'expired' : 'new');
+      showPaywall(_finalTrialExpired ? 'expired' : 'new');
     }
     return;
   }
@@ -7595,6 +7675,51 @@ async function docLoginLegacy(input, pass) {
   localStorage.setItem('ml_session', name);
   if (typeof mlStartInactivity === 'function') mlStartInactivity();
   openDocDashboard(name, userData);
+}
+
+// ── mlActivateTrial : active l'essai gratuit via un code valide ──────────────
+// Appelé UNIQUEMENT depuis la page paiement après validation d'un code d'essai.
+// Ne jamais appeler automatiquement à l'inscription.
+async function mlActivateTrial(nameOrEmail, email, code, trialDays, isFounder) {
+  const uid = docCurrentUser;
+  if (!uid) { console.warn('[TRIAL_CODE] mlActivateTrial — pas de session uid'); return; }
+  const days = trialDays || 30;
+  const now = Date.now();
+  const trialPatch = {
+    trialStart: now,
+    trialDays: days,
+    subscriptionStatus: isFounder ? 'active' : 'trial',
+    plan: isFounder ? 'cabinet_90' : 'pro_trial',
+    maxDoctors: isFounder ? 999 : 999,  // illimité pendant le trial
+    hasPaid: isFounder ? true : false,
+    isFounder: isFounder || false,
+    trialCodeUsed: code || null,
+    trialActivatedAt: now
+  };
+  console.log('[TRIAL_CODE]', JSON.stringify({
+    codeEntered: code, valid: true, activated: true,
+    trialStart: now, trialDays: days, isFounder
+  }));
+  try {
+    await fbUpdateUserByUid(uid, trialPatch).catch(() => {});
+    // Mettre à jour le cabinet aussi pour les listeners temps réel
+    await fbUpdateCabinetByUid(uid, {
+      trialStart: now, trialDays: days,
+      subscriptionStatus: isFounder ? 'active' : 'trial',
+      plan: isFounder ? 'cabinet_90' : 'pro_trial',
+      maxDoctors: 999, updatedAt: now
+    }).catch(() => {});
+    // Mettre à jour le cache local
+    try {
+      const lc = JSON.parse(localStorage.getItem('users') || '{}');
+      lc[uid] = Object.assign(lc[uid] || {}, trialPatch);
+      localStorage.setItem('users', JSON.stringify(lc));
+      window._lastDocData = Object.assign(window._lastDocData || {}, trialPatch);
+    } catch(_e) {}
+    console.log('[TRIAL_CODE] Trial activé — uid:', uid, '| plan:', trialPatch.plan, '| jours:', days);
+  } catch(e) {
+    console.error('[TRIAL_CODE] Erreur activation trial:', e);
+  }
 }
 
 // ── markDoctorPaid : enregistre subscriptionStatus, plan, maxDoctors ──
@@ -8816,13 +8941,29 @@ function showPage(id) {
     }
 
     var hasAccess = ud.hasPaid || ud.isFounder || ud.addedBy;
-    if (!hasAccess && cabinetData && cabinetData.trialStart) {
+    // Trial valide uniquement si activé via page paiement
+    if (!hasAccess && cabinetData && cabinetData.trialStart && cabinetData.subscriptionStatus === 'trial') {
       hasAccess = (Date.now() - cabinetData.trialStart) < 30 * 24 * 3600 * 1000;
     }
-    if (!hasAccess && ud.trialStart) {
-      hasAccess = Date.now() < ud.trialStart + 30 * 24 * 3600 * 1000;
+    if (!hasAccess && ud.trialStart && (ud.subscriptionStatus === 'trial' || ud.subscriptionStatus === 'pro_trial')) {
+      hasAccess = Date.now() < ud.trialStart + (ud.trialDays || 30) * 24 * 3600 * 1000;
     }
-    if (!hasAccess) return;
+    if (!hasAccess) {
+      // Compte sans abonnement (pending) → page paiement
+      const _restoreSubStatus = ud.subscriptionStatus || (cabinetData && cabinetData.subscriptionStatus) || 'pending';
+      if (_restoreSubStatus === 'pending') {
+        console.log('[ACCESS_CHECK] mlRestoreSession — pending, redirection paiement. uid:', key);
+        docCurrentUser = key;
+        localStorage.setItem('ml_session', key);
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', function() { showPage('payment'); });
+        } else {
+          showPage('payment');
+        }
+        return;
+      }
+      return;
+    }
 
     docCurrentUser = key;
     showPage('doctor');
