@@ -1288,11 +1288,33 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
     console.log('cabinet trialStart :', cabinetData && cabinetData.trialStart);
     // ──────────────────────────────────────────────────────────────────
 
-    var _isInvitedRoleSession = (userData.role === 'invited_doctor' || userData.role === 'invitedDoctor' ||
-      userData.subscriptionStatus === 'included_by_invitation');
-    var hasAccess = userData.hasPaid || userData.isFounder || userData.addedBy || _isInvitedRoleSession;
-    var _hasAccessReason = userData.hasPaid ? 'hasPaid' : userData.isFounder ? 'isFounder' : userData.addedBy ? 'addedBy' :
-      _isInvitedRoleSession ? 'role=invited_doctor/included_by_invitation' : 'aucun';
+    // ── Détection invité stricte (même logique que docLogin) ────────────
+    var _sessionOwnerRef = userData.billingOwner || userData.invitedBy || userData.addedBy || null;
+    var _isStrictInvitedSession = !!(
+      (_sessionOwnerRef && String(_sessionOwnerRef) !== String(uid)) ||
+      userData.role === 'invited_doctor' || userData.role === 'invitedDoctor' ||
+      userData.subscriptionStatus === 'included_by_invitation'
+    );
+
+    if (_isStrictInvitedSession) {
+      console.log('[INVITED_LOGIN_FLOW] proceedSession — invité détecté, dashboard direct. uid:', uid, 'ownerRef:', _sessionOwnerRef);
+      console.log('[ACCESS_DECISION]', JSON.stringify({
+        uid, role: userData.role, subscriptionStatus: userData.subscriptionStatus,
+        hasPaid: userData.hasPaid || false, billingOwner: _sessionOwnerRef,
+        hasAccess: true, reason: 'invited_doctor_session', nextPage: 'dashboard'
+      }));
+      if (docCurrentUser) return;
+      docCurrentUser = uid;
+      localStorage.setItem('ml_session', uid);
+      var _launchInv = function() { showPage('doctor'); openDocDashboard(uid, userData); mlStartInactivity(); };
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _launchInv);
+      else _launchInv();
+      return;
+    }
+
+    var _isInvitedRoleSession = false; // déjà géré par _isStrictInvitedSession
+    var hasAccess = userData.hasPaid || userData.isFounder;
+    var _hasAccessReason = userData.hasPaid ? 'hasPaid' : userData.isFounder ? 'isFounder' : 'aucun';
     // Trial : valide uniquement si subscriptionStatus='trial' ET trialStart défini (activé via page paiement)
     if (!hasAccess && cabinetData && cabinetData.trialStart && cabinetData.subscriptionStatus === 'trial') {
       hasAccess = (Date.now() - cabinetData.trialStart) < 30 * 24 * 3600 * 1000;
@@ -1332,7 +1354,7 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
     console.groupEnd();
 
     if (!hasAccess) {
-      // LAST-CHANCE REPAIR : restauration de session — même logique que docLogin
+      // LAST-CHANCE REPAIR : si l'email correspond à une invitation, réparer et donner accès
       var _sessionEmail = (window.fbAuth && window.fbAuth.currentUser && window.fbAuth.currentUser.email) || userData.mail || userData.email || '';
       console.error('[ML SESSION REPAIR] Tentative réparation uid:', uid, 'email:', _sessionEmail);
       if (_sessionEmail) {
@@ -1341,9 +1363,38 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
           userData = _sessionRepaired;
           hasAccess = true;
           console.log('[ML SESSION REPAIR] Succès — session restaurée. uid:', uid, 'ownerUid:', userData.billingOwner);
+          // C'est un invité réparé → dashboard direct
+          console.log('[ACCESS_DECISION]', JSON.stringify({
+            uid, role: 'invited_doctor', subscriptionStatus: 'included_by_invitation',
+            hasPaid: true, billingOwner: userData.billingOwner,
+            hasAccess: true, reason: 'repaired_invited_session', nextPage: 'dashboard'
+          }));
+          if (docCurrentUser) return;
+          docCurrentUser = uid;
+          localStorage.setItem('ml_session', uid);
+          var _launchRep = function() { showPage('doctor'); openDocDashboard(uid, userData); mlStartInactivity(); };
+          if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _launchRep);
+          else _launchRep();
+          return;
         }
       }
       if (!hasAccess) {
+        // Owner sans abonnement → page paiement (pas retour accueil)
+        var _proceedSubStatus = userData.subscriptionStatus || (cabinetData && cabinetData.subscriptionStatus) || 'pending';
+        console.log('[ACCESS_DECISION]', JSON.stringify({
+          uid, role: userData.role, subscriptionStatus: _proceedSubStatus,
+          hasPaid: userData.hasPaid || false, billingOwner: null,
+          hasAccess: false, reason: 'no_subscription',
+          nextPage: _proceedSubStatus === 'pending' ? 'payment' : 'paywall'
+        }));
+        if (_proceedSubStatus === 'pending') {
+          // Nouveau compte → page paiement
+          docCurrentUser = uid;
+          localStorage.setItem('ml_session', uid);
+          if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ showPage('payment'); });
+          else showPage('payment');
+          return;
+        }
         console.error('[ML SESSION REPAIR] Échec — session bloquée. uid:', uid);
         return;
       }
@@ -3651,8 +3702,14 @@ async function docRegister() {
 
   startEmailVerification(ownerUid, mail, () => {
     sendWelcomeEmail(name, mail);
-    docMsg('verifyMsg', 'Email verifie ! Redirection vers le paiement...', 'success');
+    docMsg('verifyMsg', 'Email vérifié ! Redirection vers le paiement...', 'success');
     docCurrentUser = ownerUid;
+    console.log('[REGISTER_OWNER_FLOW]', JSON.stringify({
+      uid: ownerUid, email: mail, role: 'owner',
+      subscriptionStatus: 'pending', hasPaid: false,
+      hasAccess: false, reason: 'new_account_no_subscription',
+      nextPage: 'payment'
+    }));
     setTimeout(() => showPage('payment'), 1200);
   });
 
@@ -7341,10 +7398,17 @@ async function docLogin() {
         publicCode: minimalPublicCode,
         doctorCode: minimalPublicCode,
         hasPaid: false,
+        subscriptionStatus: 'pending', // pas d'essai automatique
         role: 'owner',
-        trialStart: _existingTrialStart || Date.now(), // ne jamais réinitialiser si existant
+        // trialStart uniquement si déjà existant en Firebase (ne jamais créer ici)
+        ..._existingTrialStart ? { trialStart: _existingTrialStart } : {},
         _minimal: true
       };
+      console.log('[REGISTER_OWNER_FLOW]', JSON.stringify({
+        uid, email: emailToUse, role: 'owner',
+        subscriptionStatus: 'pending', hasPaid: false,
+        nextPage: 'payment', reason: 'profil minimal créé au login'
+      }));
       await fbSetUserByUid(uid, userData).catch(() => {});
       // trialStart cabinet : seulement si le cabinet n'existe pas encore
       try {
@@ -7494,12 +7558,60 @@ async function docLogin() {
     console.warn('[ML] rattachement invitation avant paywall impossible:', e);
   }
 
+  // ── DÉTECTION INVITÉ STRICTE — AVANT tout contrôle d'abonnement ─────────
+  // Un médecin invité a billingOwner/invitedBy/addedBy pointant vers un UID différent du sien
+  const _invOwnerRef = userData.billingOwner || userData.invitedBy || userData.addedBy || null;
+  const _isStrictInvited = !!(
+    (_invOwnerRef && String(_invOwnerRef) !== String(uid)) ||
+    userData.role === 'invited_doctor' || userData.role === 'invitedDoctor' ||
+    userData.subscriptionStatus === 'included_by_invitation'
+  );
+
+  console.log('[INVITED_LOGIN_FLOW]', JSON.stringify({
+    uid, email: emailToUse,
+    role: userData.role,
+    subscriptionStatus: userData.subscriptionStatus,
+    hasPaid: userData.hasPaid || false,
+    billingOwner: userData.billingOwner || null,
+    invitedBy: userData.invitedBy || null,
+    addedBy: userData.addedBy || null,
+    _isStrictInvited
+  }));
+
+  if (_isStrictInvited) {
+    // Médecin invité confirmé → dashboard direct, JAMAIS paywall ni page d'accueil
+    // Réparer les champs manquants si besoin
+    if (!userData.role || userData.role !== 'invited_doctor') {
+      const _repairPatch = {
+        role: 'invited_doctor',
+        hasPaid: true,
+        subscriptionStatus: 'included_by_invitation',
+        billingOwner: _invOwnerRef,
+        invitedBy: _invOwnerRef,
+        addedBy: _invOwnerRef
+      };
+      userData = Object.assign({}, userData, _repairPatch);
+      await fbUpdateUserByUid(uid, _repairPatch).catch(() => {});
+      console.log('[INVITED_LOGIN_FLOW] Champs réparés — uid:', uid, 'ownerUid:', _invOwnerRef);
+    }
+    console.log('[ACCESS_DECISION]', JSON.stringify({
+      uid, email: emailToUse, role: userData.role,
+      subscriptionStatus: userData.subscriptionStatus,
+      hasPaid: userData.hasPaid, billingOwner: _invOwnerRef,
+      hasAccess: true, reason: 'invited_doctor_strict',
+      nextPage: 'dashboard'
+    }));
+    sessionStorage.removeItem('ml_paywall_shown');
+    localStorage.setItem('ml_session', uid);
+    if (typeof mlStartInactivity === 'function') mlStartInactivity();
+    openDocDashboard(uid, userData);
+    return;
+  }
+
+  // ── Vérification abonnement pour le médecin PRINCIPAL ─────────────────
   let hasAccess =
     userData.hasPaid ||
-    userData.isFounder ||
-    userData.addedBy ||
-    userData.role === 'invited_doctor' ||
-    userData.subscriptionStatus === 'included_by_invitation';
+    userData.isFounder;
   // Trial valide uniquement si activé via page paiement (subscriptionStatus=trial ou pro_trial)
   if (!hasAccess && cabinetData && cabinetData.trialStart && cabinetData.subscriptionStatus === 'trial') {
     hasAccess = (Date.now() - cabinetData.trialStart) < 30 * 24 * 3600 * 1000;
@@ -7589,6 +7701,15 @@ async function docLogin() {
     return;
   }
 
+  // Owner avec accès → dashboard
+  console.log('[ACCESS_DECISION]', JSON.stringify({
+    uid, email: emailToUse, role: userData.role,
+    subscriptionStatus: userData.subscriptionStatus,
+    hasPaid: userData.hasPaid || false,
+    billingOwner: userData.billingOwner || null,
+    hasAccess: true, reason: hasAccess ? 'owner_active' : 'fallback',
+    nextPage: 'dashboard'
+  }));
   sessionStorage.removeItem('ml_paywall_shown'); // reset anti-boucle paywall
   localStorage.setItem('ml_session', uid);
   if (typeof mlStartInactivity === 'function') mlStartInactivity();
