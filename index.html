@@ -2893,16 +2893,27 @@ async function handlePayment() {
   }
   if (!stripe) { msgEl.textContent = 'Erreur : rechargez la page.'; msgEl.className = 'pay-msg err'; btn.disabled = false; btnTxt.textContent = '🔒 Payer'; spin.style.display = 'none'; return; }
   try {
-    const { paymentMethod, error } = await stripe.createPaymentMethod({ type: 'card', card: cardNumber, billing_details: { name, email } });
+    const { paymentMethod, error } = await stripe.createPaymentMethod({
+      type: 'card', card: cardNumber,
+      billing_details: { name, email },
+      metadata: { mediline_uid: docCurrentUser || '', mediline_plan: currentPlan || 'cabinet_40' }
+    });
     if (error) {
       msgEl.textContent = '❌ ' + error.message; msgEl.className = 'pay-msg err';
     } else {
-      // ── SÉCURITÉ : le paiement n'est PAS validé ici côté front. ──────────
-      // createPaymentMethod crée uniquement un token — aucun débit n'a lieu.
-      // hasPaid ne sera mis à true QUE par le webhook Stripe (côté serveur).
-      // En attendant, on enregistre un état "pending_payment" pour info.
-      // ─────────────────────────────────────────────────────────────────────
+      // ── SÉCURITÉ : hasPaid=true uniquement via webhook Stripe côté serveur ──
+      // Stocker uid + plan dans le paymentMethod pour que le webhook puisse
+      // retrouver l'utilisateur via stripeCustomerId ou mediline_uid.
       await mlSetPaymentPending(name, email, paymentMethod.id, currentPlan);
+      // Sauvegarder le paymentMethodId pour association côté Stripe si besoin
+      try {
+        const _uid = docCurrentUser;
+        if (_uid) await fbUpdateUserByUid(_uid, {
+          pendingPaymentMethodId: paymentMethod.id,
+          pendingPlan: currentPlan,
+          pendingAt: Date.now()
+        }).catch(() => {});
+      } catch(_e) {}
       msgEl.textContent = '⏳ Paiement en attente de confirmation. Vous recevrez un email dès validation.';
       msgEl.className = 'pay-msg';
       showToast('⏳ Paiement en cours de validation…', 'blue');
@@ -3064,14 +3075,24 @@ async function handlePcoPayment() {
   if (!pcoStripe) { msgEl.textContent = 'Erreur : rechargez la page.'; msgEl.className = 'pay-msg err'; btn.disabled = false; btnTxt.textContent = '🔒 Commencer'; spin.style.display = 'none'; return; }
 
   try {
-    const { paymentMethod, error } = await pcoStripe.createPaymentMethod({ type: 'card', card: pcoCardNumber, billing_details: { name, email } });
+    const { paymentMethod, error } = await pcoStripe.createPaymentMethod({
+      type: 'card', card: pcoCardNumber,
+      billing_details: { name, email },
+      metadata: { mediline_uid: docCurrentUser || '', mediline_plan: pcoCurrentPlan || 'cabinet_40' }
+    });
     if (error) {
       msgEl.textContent = '❌ ' + error.message; msgEl.className = 'pay-msg err';
     } else {
-      // ── SÉCURITÉ : paiement non validé côté front ─────────────────────
-      // Le débit réel et hasPaid=true seront gérés par le webhook Stripe.
-      // ─────────────────────────────────────────────────────────────────
+      // ── SÉCURITÉ : hasPaid=true uniquement via webhook Stripe côté serveur ──
       await mlSetPaymentPending(name, email, paymentMethod.id, pcoCurrentPlan);
+      try {
+        const _uid = docCurrentUser;
+        if (_uid) await fbUpdateUserByUid(_uid, {
+          pendingPaymentMethodId: paymentMethod.id,
+          pendingPlan: pcoCurrentPlan,
+          pendingAt: Date.now()
+        }).catch(() => {});
+      } catch(_e) {}
       msgEl.textContent = '⏳ Paiement en attente de confirmation. Vous recevrez un email dès validation.';
       msgEl.className = 'pay-msg';
       showToast('⏳ Paiement en cours de validation…', 'blue');
@@ -4936,7 +4957,7 @@ function startAutoTick() {
     if (realAction) docSave(true); // reset startedAt uniquement lors d'une action auto réelle
     docUpdate();
     // Vérification accès toutes les 60 secondes
-    if (docSecondsElapsed % 15 === 0) checkSessionAccess();
+    if (docSecondsElapsed % 60 === 0) checkSessionAccess(); // 60s — le listener userRef gère le temps réel
   }, 1000);
 }
 
@@ -8554,7 +8575,6 @@ async function dmToggleStatus(doctorUid, newStatus) {
     const userHandler = userRef.on('value', function(snap) {
       if (!docCurrentUser) return;
       if (!snap.exists()) {
-        // Compte supprimé — médecin invité ne voit jamais le paywall
         var _allU = JSON.parse(localStorage.getItem('users') || '{}');
         var _cu = _allU[docCurrentUser] || null;
         if (_cu && (_cu.role === 'invited_doctor' || _cu.role === 'invitedDoctor'
@@ -8566,8 +8586,27 @@ async function dmToggleStatus(doctorUid, newStatus) {
         docLogout(); showPaywall('new'); return;
       }
       const u = snap.val();
+      // Mettre à jour le cache localStorage avec les données fraîches Firebase
+      try {
+        const _lc = JSON.parse(localStorage.getItem('users') || '{}');
+        _lc[docCurrentUser] = Object.assign(_lc[docCurrentUser] || {}, u);
+        localStorage.setItem('users', JSON.stringify(_lc));
+        window._lastDocData = Object.assign(window._lastDocData || {}, u);
+      } catch(_e) {}
+
+      // ── Restauration accès après paiement confirmé par webhook ──────────
+      // Si hasPaid vient de passer à true (set par webhook), rouvrir le dashboard
+      if (u.hasPaid && u.subscriptionStatus === 'active') {
+        const _overlay = document.getElementById('paywallOverlay');
+        if (_overlay && !_overlay.classList.contains('hidden')) {
+          console.log('[ML HOOK] Paiement confirmé via webhook — accès restauré pour uid:', docCurrentUser);
+          _overlay.classList.add('hidden');
+          if (typeof openDocDashboard === 'function') openDocDashboard(docCurrentUser, u);
+          return;
+        }
+      }
+
       if (u.disabled) {
-        // Désactivé — médecin invité ne voit pas le paywall
         if (u.role === 'invited_doctor' || u.role === 'invitedDoctor'
           || u.subscriptionStatus === 'included_by_invitation'
           || u.billingOwner || u.invitedBy || u.addedBy) {
@@ -8596,14 +8635,21 @@ async function dmToggleStatus(doctorUid, newStatus) {
       // Vérifier abonnement cabinet (active ou trial acceptés)
       const isActive = cab.subscriptionStatus === 'active' || cab.subscriptionStatus === 'trial';
       const inTrial = cab.trialStart && (Date.now() - cab.trialStart) < 30 * 24 * 3600 * 1000;
-      const allUsers = JSON.parse(localStorage.getItem('users') || '{}');
-      const u = allUsers[docCurrentUser];
+      // Lire profil utilisateur depuis Firebase (frais) ET localStorage (fallback)
+      const _lsUsers = JSON.parse(localStorage.getItem('users') || '{}');
+      const u = (window._lastDocData && window._lastDocData.uid === docCurrentUser ? window._lastDocData : null)
+        || _lsUsers[docCurrentUser] || null;
       console.log('[ML HOOK] cabinet value – uid:', docCurrentUser, '| role:', u && u.role,
         '| cab.subscriptionStatus:', cab.subscriptionStatus, '| isActive:', isActive, '| inTrial:', inTrial);
       // Founders et médecins invités → jamais de paywall
       if (u && (u.isFounder || u.role === 'invited_doctor' || u.role === 'invitedDoctor'
         || u.subscriptionStatus === 'included_by_invitation')) {
         console.log('[ML HOOK] Accès permis – founder ou médecin invité.');
+        return;
+      }
+      // Si hasPaid est true côté user (mis par webhook), ne pas afficher le paywall
+      if (u && u.hasPaid) {
+        console.log('[ML HOOK] Accès permis – hasPaid=true (confirmé webhook).');
         return;
       }
       if (!isActive && !inTrial) {
