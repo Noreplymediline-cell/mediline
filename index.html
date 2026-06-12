@@ -1068,6 +1068,12 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
 .ml-stats-toggle{font-size:11px;color:var(--blue);cursor:pointer;font-weight:700;margin-left:auto;opacity:.8}
 .ml-stats-toggle:hover{opacity:1}
 @media(max-width:360px){.ml-stats-grid{grid-template-columns:repeat(2,1fr)}}
+
+/* ── Portail Stripe ───────────────────────────────────────────────── */
+.ml-portal-btn{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:9px 16px;border-radius:10px;border:1.5px solid #e0e7ff;background:#f5f7ff;color:#3730a3;font-size:12px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;transition:all .18s;width:100%;justify-content:center}
+.ml-portal-btn:hover{background:#e0e7ff;border-color:#a5b4fc}
+.ml-portal-btn:disabled{opacity:.5;cursor:not-allowed}
+.ml-portal-btn svg{flex-shrink:0}
 </style>
 <!-- Firebase SDKs (doit charger avant le JS applicatif) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -8308,6 +8314,30 @@ async function dmRenderPlanInfo() {
     }
   }
   el.innerHTML = msg + renewBtn;
+
+  // ── Bouton portail Stripe (owners avec abonnement actif uniquement) ──
+  // Additif : ne modifie pas msg ni renewBtn
+  try {
+    var _isOwnerForPortal = !isInvitedDoctor(u, docCurrentUser);
+    var _hasPaidForPortal = u.hasPaid || (u.subscriptionStatus === 'active');
+    // Lire stripeCustomerId depuis userData ou cabinet
+    var _stripeId = u.stripeCustomerId || (_cabData && _cabData.stripeCustomerId) || null;
+    var portalContainer = document.getElementById('mlPortalBtnContainer');
+    if (!portalContainer) {
+      portalContainer = document.createElement('div');
+      portalContainer.id = 'mlPortalBtnContainer';
+      el.parentNode.insertBefore(portalContainer, el.nextSibling);
+    }
+    if (_isOwnerForPortal && _hasPaidForPortal && _stripeId) {
+      portalContainer.innerHTML =
+        '<button class="ml-portal-btn" id="mlPortalBtn" onclick="mlOpenStripePortal()">'
+        + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>'
+        + ' Gérer mon abonnement'
+        + '</button>';
+    } else {
+      portalContainer.innerHTML = '';
+    }
+  } catch(_pe) {}
   el.className = 'dm-plan-info' + (cls ? ' ' + cls : '');
 
   const addBtn = document.getElementById('dmAddBtn');
@@ -11790,6 +11820,65 @@ function mlStatsToggleDetail() {
     };
   }
 })();
+
+
+/* ══════════════════════════════════════════════════════════════════
+   PORTAIL STRIPE — Accès self-service abonnement
+   ══════════════════════════════════════════════════════════════════ */
+
+async function mlOpenStripePortal() {
+  const btn = document.getElementById('mlPortalBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Ouverture…'; }
+
+  try {
+    // Récupérer le stripeCustomerId depuis Firebase (source fiable)
+    let customerId = null;
+    try {
+      const snap = await firebase.database().ref('users/' + docCurrentUser + '/stripeCustomerId').get();
+      if (snap && snap.exists()) customerId = snap.val();
+    } catch(e) {}
+    // Fallback localStorage
+    if (!customerId) {
+      const lc = JSON.parse(localStorage.getItem('users') || '{}');
+      const u = lc[docCurrentUser] || {};
+      customerId = u.stripeCustomerId || null;
+    }
+
+    if (!customerId) {
+      showToast('⚠️ Aucun abonnement Stripe actif trouvé.', 'orange');
+      if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Gérer mon abonnement'; }
+      return;
+    }
+
+    // Appeler le worker /api/stripe-portal
+    const res = await fetch('/api/stripe-portal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customerId,
+        returnUrl: location.href
+      })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.url) {
+      console.error('[PORTAL] Erreur:', data.error);
+      showToast('❌ ' + (data.error || 'Impossible d\'ouvrir le portail.'), 'red');
+      if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Gérer mon abonnement'; }
+      return;
+    }
+
+    // Ouvrir le portail Stripe dans un nouvel onglet
+    window.open(data.url, '_blank');
+    if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Gérer mon abonnement'; }
+
+  } catch(e) {
+    console.error('[PORTAL] Erreur réseau:', e);
+    showToast('❌ Erreur de connexion au portail.', 'red');
+    if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Gérer mon abonnement'; }
+  }
+}
 
 </script>
 
