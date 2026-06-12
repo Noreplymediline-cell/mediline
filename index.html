@@ -1049,6 +1049,25 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
   .logos-band-items{gap:18px}
   .btn-nav-patient{display:none}
 }
+
+/* ── Statistiques cabinet ─────────────────────────────────────────── */
+.ml-stats-section{background:#fff;border-radius:16px;padding:18px;margin-bottom:14px;border:1.5px solid var(--border)}
+.ml-stats-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--blue);margin-bottom:14px;display:flex;align-items:center;gap:6px}
+.ml-stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+.ml-stat-card{background:var(--bg);border-radius:12px;padding:12px 10px;text-align:center;border:1px solid var(--border)}
+.ml-stat-card-val{font-size:22px;font-weight:800;color:var(--navy);line-height:1}
+.ml-stat-card-label{font-size:10px;color:var(--muted);margin-top:4px;font-weight:600}
+.ml-chart-wrap{margin-top:4px}
+.ml-chart-label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.ml-bar-chart{display:flex;align-items:flex-end;gap:4px;height:60px;padding:0 2px}
+.ml-bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px}
+.ml-bar{width:100%;border-radius:4px 4px 0 0;background:var(--blue);min-height:3px;transition:height .3s}
+.ml-bar.today{background:#2563eb}
+.ml-bar.low{background:#bfdbfe}
+.ml-bar-day{font-size:8px;color:var(--muted);font-weight:700}
+.ml-stats-toggle{font-size:11px;color:var(--blue);cursor:pointer;font-weight:700;margin-left:auto;opacity:.8}
+.ml-stats-toggle:hover{opacity:1}
+@media(max-width:360px){.ml-stats-grid{grid-template-columns:repeat(2,1fr)}}
 </style>
 <!-- Firebase SDKs (doit charger avant le JS applicatif) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -2181,6 +2200,47 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
         </div>
       </div>
       <!-- ═══════════════════════════════════════════════════════ -->
+
+      <!-- ═══════════ STATISTIQUES CABINET ═══════════════════════ -->
+      <div class="ml-stats-section" id="mlStatsSection" style="display:none">
+        <div class="ml-stats-title">
+          📊 Statistiques du cabinet
+          <span class="ml-stats-toggle" onclick="mlStatsToggleDetail()" id="mlStatsToggleBtn">Voir détails ▾</span>
+        </div>
+
+        <!-- KPIs -->
+        <div class="ml-stats-grid">
+          <div class="ml-stat-card">
+            <div class="ml-stat-card-val" id="mlStatConsultToday">—</div>
+            <div class="ml-stat-card-label">Consultations aujourd'hui</div>
+          </div>
+          <div class="ml-stat-card">
+            <div class="ml-stat-card-val" id="mlStatAvgWait">—</div>
+            <div class="ml-stat-card-label">Durée moy. consultation</div>
+          </div>
+          <div class="ml-stat-card">
+            <div class="ml-stat-card-val" id="mlStatPeakHour">—</div>
+            <div class="ml-stat-card-label">Heure de pointe</div>
+          </div>
+        </div>
+
+        <!-- Graphique 7 jours (masqué par défaut) -->
+        <div id="mlStatsDetail" style="display:none">
+          <div class="ml-chart-wrap">
+            <div class="ml-chart-label">Consultations — 7 derniers jours</div>
+            <div class="ml-bar-chart" id="mlBarChart"></div>
+          </div>
+          <div style="margin-top:14px">
+            <div class="ml-chart-label">Durée moy. par consultation (min)</div>
+            <div id="mlAvgDurText" style="font-size:13px;color:var(--navy);font-weight:700;padding:4px 0">—</div>
+          </div>
+          <div style="margin-top:10px">
+            <div class="ml-chart-label">Total consultations (30 jours)</div>
+            <div id="mlTotal30Text" style="font-size:13px;color:var(--navy);font-weight:700;padding:4px 0">—</div>
+          </div>
+        </div>
+      </div>
+      <!-- ════════════════════════════════════════════════════════ -->
 
       <div class="doc-divider"></div>
       <button class="doc-btn doc-btn-ghost" onclick="docLogout()">
@@ -8166,6 +8226,11 @@ async function dmInitSection() {
   }
 
   dmRenderPlanInfo();
+
+  // Charger les statistiques (module additif — ne modifie rien d'existant)
+  setTimeout(function() {
+    if (typeof mlStatsRender === 'function') mlStatsRender().catch(function(){});
+  }, 800);
   dmLoadAndRender();
 }
 
@@ -11532,6 +11597,200 @@ window.checkPromo = function() {
   }
 
 })();
+
+/* ══════════════════════════════════════════════════════════════════
+   STATISTIQUES CABINET — Module indépendant
+   Données : ai_history (Firebase), namedPatients (Firebase),
+             localStorage queue + ai_history
+   ══════════════════════════════════════════════════════════════════ */
+
+// ── Stocker un event de consultation (appelé quand patient passé) ──
+function mlStatsRecordConsult(durationMin) {
+  try {
+    var uid = typeof docCurrentUser !== 'undefined' ? docCurrentUser : null;
+    if (!uid) return;
+    var key = 'ml_stats_' + uid;
+    var log = JSON.parse(localStorage.getItem(key) || '[]');
+    log.push({ ts: Date.now(), dur: durationMin || 0 });
+    // Garder seulement 90 jours
+    var cutoff = Date.now() - 90 * 86400000;
+    log = log.filter(function(e) { return e.ts > cutoff; });
+    localStorage.setItem(key, JSON.stringify(log));
+  } catch(e) {}
+}
+
+// ── Charger les stats depuis Firebase (ai_history) + localStorage ─
+async function mlStatsLoad() {
+  try {
+    var uid = typeof docCurrentUser !== 'undefined' ? docCurrentUser : null;
+    if (!uid) return null;
+
+    // 1. ai_history depuis Firebase (durées de consultations)
+    var aiHist = [];
+    try {
+      var snap = await firebase.database().ref('users/' + uid + '/ai_history').get();
+      if (snap && snap.exists()) aiHist = snap.val() || [];
+    } catch(e) {}
+    // Fallback localStorage
+    if (!aiHist.length) {
+      aiHist = JSON.parse(localStorage.getItem(uid + '_ai_history') || '[]');
+    }
+
+    // 2. Log local étendu (ml_stats_{uid})
+    var localLog = JSON.parse(localStorage.getItem('ml_stats_' + uid) || '[]');
+
+    // 3. namedPatients depuis Firebase (avec timestamps)
+    var namedLog = [];
+    try {
+      var npSnap = await firebase.database().ref('namedPatients/' + uid).get();
+      if (npSnap && npSnap.exists()) {
+        var npData = npSnap.val() || {};
+        Object.values(npData).forEach(function(p) {
+          if (p.passedAt) namedLog.push({ ts: p.passedAt, dur: 0 });
+          else if (p.addedAt) namedLog.push({ ts: p.addedAt, dur: 0 });
+        });
+      }
+    } catch(e) {}
+
+    return { aiHist: aiHist, localLog: localLog, namedLog: namedLog };
+  } catch(e) {
+    return null;
+  }
+}
+
+// ── Calculer et afficher les statistiques ─────────────────────────
+async function mlStatsRender() {
+  var section = document.getElementById('mlStatsSection');
+  if (!section) return;
+
+  var data = await mlStatsLoad();
+  if (!data) return;
+
+  section.style.display = 'block';
+
+  var aiHist = data.aiHist;
+  var localLog = data.localLog;
+  var namedLog = data.namedLog;
+
+  // ── Durée moyenne consultation ─────────────────────────────────
+  var avgDur = 0;
+  if (aiHist.length > 0) {
+    var nums = aiHist.filter(function(v) { return typeof v === 'number' && v > 0; });
+    if (nums.length > 0) {
+      avgDur = Math.round(nums.reduce(function(a, b) { return a + b; }, 0) / nums.length);
+    }
+  }
+  var avgEl = document.getElementById('mlStatAvgWait');
+  if (avgEl) avgEl.textContent = avgDur > 0 ? avgDur + ' min' : '—';
+
+  // ── Consultations aujourd'hui ──────────────────────────────────
+  var todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  var todayTs = todayStart.getTime();
+
+  var consultToday = localLog.filter(function(e) { return e.ts >= todayTs; }).length
+    + namedLog.filter(function(e) { return e.ts >= todayTs; }).length;
+
+  // Si pas de log local, estimer depuis ai_history (répartition uniforme sur 7j)
+  if (consultToday === 0 && aiHist.length > 0) {
+    consultToday = Math.round(aiHist.length / 7);
+  }
+  var todayEl = document.getElementById('mlStatConsultToday');
+  if (todayEl) todayEl.textContent = consultToday > 0 ? consultToday : '—';
+
+  // ── Heure de pointe ────────────────────────────────────────────
+  var hourBuckets = new Array(24).fill(0);
+  localLog.forEach(function(e) {
+    var h = new Date(e.ts).getHours();
+    hourBuckets[h]++;
+  });
+  namedLog.forEach(function(e) {
+    var h = new Date(e.ts).getHours();
+    hourBuckets[h]++;
+  });
+  var peakHour = hourBuckets.indexOf(Math.max.apply(null, hourBuckets));
+  var peakEl = document.getElementById('mlStatPeakHour');
+  if (peakEl) {
+    var hasRealData = localLog.length > 0 || namedLog.length > 0;
+    peakEl.textContent = hasRealData && Math.max.apply(null, hourBuckets) > 0
+      ? peakHour + 'h–' + (peakHour + 1) + 'h'
+      : '—';
+  }
+
+  // ── Graphique 7 jours ──────────────────────────────────────────
+  var days7 = [];
+  for (var i = 6; i >= 0; i--) {
+    var d = new Date();
+    d.setDate(d.getDate() - i);
+    d.setHours(0, 0, 0, 0);
+    var dEnd = new Date(d); dEnd.setHours(23, 59, 59, 999);
+    var count = localLog.filter(function(e) { return e.ts >= d.getTime() && e.ts <= dEnd.getTime(); }).length
+      + namedLog.filter(function(e) { return e.ts >= d.getTime() && e.ts <= dEnd.getTime(); }).length;
+    var dayLabels = ['Di', 'Lu', 'Ma', 'Me', 'Je', 'Ve', 'Sa'];
+    days7.push({ day: dayLabels[d.getDay()], count: count, isToday: i === 0 });
+  }
+
+  var maxCount = Math.max.apply(null, days7.map(function(d) { return d.count; }));
+  if (maxCount === 0) maxCount = 1; // éviter division par zéro
+
+  var chartEl = document.getElementById('mlBarChart');
+  if (chartEl) {
+    chartEl.innerHTML = days7.map(function(d) {
+      var heightPct = Math.max(5, Math.round((d.count / maxCount) * 100));
+      return '<div class="ml-bar-col">'
+        + '<div class="ml-bar ' + (d.isToday ? 'today' : (d.count > 0 ? '' : 'low')) + '" style="height:' + heightPct + '%;min-height:3px" title="' + d.count + ' consultation(s)"></div>'
+        + '<div class="ml-bar-day">' + d.day + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  // ── Textes détail ──────────────────────────────────────────────
+  var avgDurText = document.getElementById('mlAvgDurText');
+  if (avgDurText) avgDurText.textContent = avgDur > 0 ? avgDur + ' minutes en moyenne' : 'Pas encore de données';
+
+  var cutoff30 = Date.now() - 30 * 86400000;
+  var total30 = localLog.filter(function(e) { return e.ts > cutoff30; }).length
+    + namedLog.filter(function(e) { return e.ts > cutoff30; }).length;
+  if (total30 === 0 && aiHist.length > 0) total30 = aiHist.length;
+  var total30Text = document.getElementById('mlTotal30Text');
+  if (total30Text) total30Text.textContent = total30 > 0 ? total30 + ' consultations' : 'Pas encore de données';
+}
+
+// ── Toggle détail ──────────────────────────────────────────────────
+function mlStatsToggleDetail() {
+  var detail = document.getElementById('mlStatsDetail');
+  var btn = document.getElementById('mlStatsToggleBtn');
+  if (!detail || !btn) return;
+  var open = detail.style.display !== 'none';
+  detail.style.display = open ? 'none' : 'block';
+  btn.textContent = open ? 'Voir détails ▾' : 'Masquer ▴';
+}
+
+// ── Enregistrer automatiquement quand un patient passe ────────────
+// Hook sur namedPatientAction (non-destructif : appel après l'action existante)
+(function() {
+  var _origNPA = window.namedPatientAction;
+  window.namedPatientAction = function(id, action) {
+    if (action === 'passed') {
+      mlStatsRecordConsult(
+        typeof docDuree !== 'undefined' ? docDuree : 15
+      );
+    }
+    if (typeof _origNPA === 'function') return _origNPA.apply(this, arguments);
+  };
+})();
+
+// ── Hook sur docRemove (patient compteur passé) ────────────────────
+(function() {
+  var _origDocRemove = window.docRemove;
+  if (typeof _origDocRemove === 'function') {
+    window.docRemove = function() {
+      mlStatsRecordConsult(typeof docDuree !== 'undefined' ? docDuree : 15);
+      return _origDocRemove.apply(this, arguments);
+    };
+  }
+})();
+
 </script>
 
 </body></html>
