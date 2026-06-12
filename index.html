@@ -406,7 +406,8 @@ footer{background:var(--ink);padding:60px max(20px,calc(50% - 700px)) 30px}
 /* Code cabinet */
 .code-display{background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1.5px solid #bfdbfe;border-radius:14px;padding:18px;margin-bottom:14px;text-align:center}
 .code-display-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--blue);margin-bottom:10px}
-.code-display-val{font-family:'DM Serif Display',serif;font-size:36px;color:var(--blue);letter-spacing:6px;cursor:pointer;transition:opacity .15s;display:block;margin-bottom:6px}
+.code-display-val{font-family:'DM Serif Display',serif;font-size:36px;color:var(--blue);letter-spacing:6px;cursor:pointer;transition:opacity .15s;display:block;margin-bottom:6px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;word-break:break-all}
+@media(max-width:420px){.code-display-val{font-size:24px;letter-spacing:3px}}
 .code-display-val:hover{opacity:.7}
 .code-display-hint{font-size:11px;color:var(--muted)}
 
@@ -4055,12 +4056,17 @@ function openDocDashboard(name, userData) {
     }
   })();
   // Lire le publicCode depuis userData (champ stable ML-XXXXX)
-  // Si absent (ancien compte), le generer depuis l'UID et le sauvegarder en DB
+  // Si absent OU invalide (UID Firebase brut trop long), générer un ML-XXXXX court
   var uid_for_code = (typeof docCurrentUser !== 'undefined' && docCurrentUser) ? docCurrentUser : null;
   var code = (userData && (userData.publicCode || userData.doctorCode)) || null;
 
-  if (!code && uid_for_code) {
-    // Generer et sauvegarder definitivement (migration compte ancien)
+  // Détecter un code invalide : doit être exactement au format ML-XXXXX (8 chars)
+  // Un UID Firebase fait 28 chars — on le détecte et on régénère
+  var _isValidCode = code && /^ML-[A-Z0-9]{5}$/.test(code);
+
+  if ((!code || !_isValidCode) && uid_for_code) {
+    var _oldCode = code;
+    // Générer un code court ML-XXXXX depuis l'UID (déterministe)
     code = generatePublicCode(uid_for_code);
     var patchData = { publicCode: code, doctorCode: code, cabinetCode: code };
     fbUpdateUserByUid(uid_for_code, patchData).catch(function(){});
@@ -4068,7 +4074,7 @@ function openDocDashboard(name, userData) {
     if (!isInvitedDoctor(userData, uid_for_code)) {
       fbUpdateCabinetByUid(uid_for_code, { publicCode: code, code: code, cabinetCode: code }).catch(function(){});
     }
-    console.log('[ML] publicCode migre pour', uid_for_code, '->', code);
+    console.log('[ML] publicCode migré pour', uid_for_code, '| ancien:', _oldCode, '| nouveau:', code);
   } else if (!code) {
     code = '—';
   }
@@ -4078,7 +4084,8 @@ function openDocDashboard(name, userData) {
   const base = location.href.split('?')[0];
   document.getElementById('shareUrl').textContent = base + '?cabinet=' + encodeURIComponent(code) + '&view=patient';
   // Aussi sauvegarder le publicCode en DB sur l'utilisateur courant si c'est un vrai code ML-
-  if (uid_for_code && code && code.startsWith('ML-')) {
+  // Sauvegarder uniquement si c'est un code ML-XXXXX valide (pas un UID brut)
+  if (uid_for_code && code && /^ML-[A-Z0-9]{5}$/.test(code)) {
     fbUpdateUserByUid(uid_for_code, { publicCode: code, doctorCode: code, cabinetCode: code }).catch(function(){});
     if (!isInvitedDoctor(userData, uid_for_code)) {
       fbUpdateCabinetByUid(uid_for_code, { publicCode: code, code: code, cabinetCode: code }).catch(function(){});
