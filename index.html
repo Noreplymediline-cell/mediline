@@ -5424,7 +5424,7 @@ async function openCabinet(code) {
       uid: ownerKeyInFbUsers,       // clé réelle dans Firebase = ID que docSave utilise
       doctorId: ownerKeyInFbUsers,
       id: ownerKeyInFbUsers,
-      name: ownerData.displayName || ownerData.name || ownerKeyInFbUsers,
+      name: ownerData.displayName || ownerData.name || '',  // vide si inconnu, filtré par isValidPublicDoctor
       specialty: ownerData.specialty || '',
       role: 'owner'
     });
@@ -5459,16 +5459,21 @@ async function openCabinet(code) {
   Object.values(cabinetDoctorsNode).forEach(d => {
     const candidateId = d.uid || d.id || d.doctorId || null;
     if (!candidateId) return;
+    // Exclure clés techniques
+    if (/^(doc_|invite_|temp_|draft_)/i.test(candidateId)) return;
     // Résoudre la clé réelle dans fbUsers (même logique que pour l'owner)
     const realKey = getDoctorQueueId(fbUsers, candidateId);
     if (doctorsMap.has(realKey)) return; // pas de doublon
     const userData = fbUsers[realKey] || fbUsers[candidateId] || {};
+    const resolvedName = userData.displayName || userData.name || d.name || '';
+    // Exclure si nom vide ou technique
+    if (!resolvedName || /^(doc_|invite_|temp_)/i.test(resolvedName)) return;
     doctorsMap.set(realKey, {
       ...userData,
       uid: realKey,
       doctorId: realKey,
       id: realKey,
-      name: userData.displayName || userData.name || d.name || realKey,
+      name: resolvedName,
       specialty: userData.specialty || d.specialty || '',
       role: 'invitedDoctor'
     });
@@ -5478,20 +5483,63 @@ async function openCabinet(code) {
   Object.keys(fbUsers).forEach(k => {
     if (doctorsMap.has(k)) return;
     const u = fbUsers[k];
+    // Exclure clés techniques
+    if (/^(doc_|invite_|temp_|draft_)/i.test(k)) return;
     if (u.addedBy === cabinetId || u.addedBy === code) {
+      const legacyName = u.displayName || u.name || '';
+      // Exclure si nom vide ou technique
+      if (!legacyName || /^(doc_|invite_|temp_)/i.test(legacyName)) return;
       doctorsMap.set(k, {
         ...u,
         uid: k,
         doctorId: k,
         id: k,
-        name: u.displayName || u.name || k,
+        name: legacyName,
         specialty: u.specialty || '',
         role: 'invitedDoctor'
       });
     }
   });
 
-  const docList = Array.from(doctorsMap.values());
+  // ── FILTRE LISTE PUBLIQUE — exclure documents techniques/invalides ──────
+  function isValidPublicDoctor(docId, docObj) {
+    const name = docObj.name || docObj.displayName || '';
+    const role = docObj.role || '';
+    // 1. Clé technique : commence par doc_ ou invite_
+    if (/^(doc_|invite_)/i.test(docId)) {
+      console.log('[PUBLIC_DOCTOR_FILTER]', JSON.stringify({ docId, role, valid: false, reasonSkipped: 'clé technique (doc_/invite_)' }));
+      return false;
+    }
+    // 2. Nom vide, null, ou clé brute Firebase
+    if (!name || name === 'null' || name === 'undefined' || name.trim() === '') {
+      console.log('[PUBLIC_DOCTOR_FILTER]', JSON.stringify({ docId, role, valid: false, reasonSkipped: 'displayName vide ou null' }));
+      return false;
+    }
+    // 3. Nom qui ressemble à un identifiant technique
+    if (/^(doc_|invite_|temp_|draft_|session_)/i.test(name)) {
+      console.log('[PUBLIC_DOCTOR_FILTER]', JSON.stringify({ docId, role, valid: false, reasonSkipped: 'nom ressemble à un id technique' }));
+      return false;
+    }
+    // 4. Rôle invalide (ni owner, ni doctor, ni invited)
+    const validRoles = ['owner', 'doctor', 'invited_doctor', 'invitedDoctor', 'invitedDoctor'];
+    if (role && !validRoles.includes(role)) {
+      console.log('[PUBLIC_DOCTOR_FILTER]', JSON.stringify({ docId, role, valid: false, reasonSkipped: 'role invalide: ' + role }));
+      return false;
+    }
+    // 5. Objet incomplet (pas de nom ET pas de spécialité)
+    const specialty = docObj.specialty || '';
+    if (!name && !specialty) {
+      console.log('[PUBLIC_DOCTOR_FILTER]', JSON.stringify({ docId, role, valid: false, reasonSkipped: 'objet incomplet (pas de nom ni spécialité)' }));
+      return false;
+    }
+    console.log('[PUBLIC_DOCTOR_FILTER]', JSON.stringify({ docId, role, valid: true, reasonSkipped: null }));
+    return true;
+  }
+
+  // Appliquer le filtre sur la map complète
+  const docList = Array.from(doctorsMap.entries())
+    .filter(([id, doc]) => isValidPublicDoctor(id, doc))
+    .map(([, doc]) => doc);
 
   if (!docList.length) {
     list.innerHTML = '<div class="empty-state"><span class="empty-icon">👨‍⚕️</span>Aucun médecin connecté pour le moment.</div>';
