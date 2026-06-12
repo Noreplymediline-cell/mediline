@@ -11641,229 +11641,169 @@ window.checkPromo = function() {
 })();
 
 /* ══════════════════════════════════════════════════════════════════
-   STATISTIQUES CABINET — Module indépendant
-   Données : ai_history (Firebase), namedPatients (Firebase),
-             localStorage queue + ai_history
+   STATISTIQUES CABINET — Module indépendant v2
+   Sources : ai_history (Firebase) + namedPatients + localStorage
    ══════════════════════════════════════════════════════════════════ */
 
-// ── Stocker un event de consultation (appelé quand patient passé) ──
+// ── Enregistrer une consultation avec timestamp ────────────────────
 function mlStatsRecordConsult(durationMin) {
   try {
-    var uid = typeof docCurrentUser !== 'undefined' ? docCurrentUser : null;
+    var uid = window.docCurrentUser;
     if (!uid) return;
     var key = 'ml_stats_' + uid;
     var log = JSON.parse(localStorage.getItem(key) || '[]');
-    log.push({ ts: Date.now(), dur: durationMin || 0 });
-    // Garder seulement 90 jours
+    log.push({ ts: Date.now(), dur: Number(durationMin) || 15 });
+    // Garder 90 jours
     var cutoff = Date.now() - 90 * 86400000;
     log = log.filter(function(e) { return e.ts > cutoff; });
     localStorage.setItem(key, JSON.stringify(log));
   } catch(e) {}
 }
 
-// ── Charger les stats depuis Firebase (ai_history) + localStorage ─
+// ── Charger toutes les données stats ──────────────────────────────
 async function mlStatsLoad() {
+  var uid = window.docCurrentUser;
+  if (!uid) return null;
+
+  // 1. ai_history Firebase (durées, sans timestamps précis)
+  var aiHist = [];
   try {
-    var uid = typeof docCurrentUser !== 'undefined' ? docCurrentUser : null;
-    if (!uid) return null;
-
-    // Pour un médecin invité, les stats de consultation sont sur le uid du invité lui-même
-    // (sa propre file), mais on enrichit avec les données du owner si disponibles
-    var lsUsers = JSON.parse(localStorage.getItem('users') || '{}');
-    var uData = lsUsers[uid] || null;
-    var statsUid = uid; // chaque médecin a ses propres stats de file
-
-    // 1. ai_history depuis Firebase — propre au médecin connecté
-    var aiHist = [];
-    try {
-      var snap = await firebase.database().ref('users/' + statsUid + '/ai_history').get();
-      if (snap && snap.exists()) aiHist = snap.val() || [];
-    } catch(e) {}
-    if (!aiHist.length) {
-      aiHist = JSON.parse(localStorage.getItem(statsUid + '_ai_history') || '[]');
-    }
-
-    // 2. Log local étendu (ml_stats_{uid})
-    var localLog = JSON.parse(localStorage.getItem('ml_stats_' + statsUid) || '[]');
-
-    // 3. namedPatients depuis Firebase (avec timestamps passedAt)
-    var namedLog = [];
-    try {
-      var npSnap = await firebase.database().ref('namedPatients/' + statsUid).get();
-      if (npSnap && npSnap.exists()) {
-        var npData = npSnap.val() || {};
-        Object.values(npData).forEach(function(p) {
-          if (p.passedAt) namedLog.push({ ts: p.passedAt, dur: p.duration || 0 });
-          else if (p.addedAt) namedLog.push({ ts: p.addedAt, dur: 0 });
-        });
-      }
-    } catch(e) {}
-
-    // 4. Lire aussi depuis users/{uid}/queue pour avoir les patients du jour
-    var queueLog = [];
-    try {
-      var qSnap = await firebase.database().ref('users/' + statsUid + '/queue').get();
-      if (qSnap && qSnap.exists()) {
-        var qData = qSnap.val() || {};
-        // today patients count
-        var todayStart = new Date(); todayStart.setHours(0,0,0,0);
-        if (qData.updatedAt && qData.updatedAt > todayStart.getTime()) {
-          // Il y a eu de l'activité aujourd'hui — on note le nb de patients actuels
-          if (qData.patients && qData.patients > 0) {
-            for (var qi = 0; qi < qData.patients; qi++) {
-              queueLog.push({ ts: qData.updatedAt || Date.now(), dur: 0 });
-            }
-          }
-        }
-      }
-    } catch(e) {}
-
-    return { aiHist: aiHist, localLog: localLog, namedLog: namedLog, queueLog: queueLog, uid: statsUid };
-  } catch(e) {
-    return { aiHist: [], localLog: [], namedLog: [], queueLog: [], uid: null };
+    var s = await firebase.database().ref('users/' + uid + '/ai_history').get();
+    if (s && s.exists()) aiHist = s.val() || [];
+  } catch(e) {}
+  if (!aiHist.length) {
+    try { aiHist = JSON.parse(localStorage.getItem(uid + '_ai_history') || '[]'); } catch(e) {}
   }
+  // Filtrer : garder uniquement les nombres positifs
+  aiHist = aiHist.filter(function(v) { return typeof v === 'number' && v > 0; });
+
+  // 2. Log local avec timestamps (ml_stats_{uid})
+  var localLog = [];
+  try { localLog = JSON.parse(localStorage.getItem('ml_stats_' + uid) || '[]'); } catch(e) {}
+
+  // 3. namedPatients Firebase (timestamps passedAt)
+  var namedLog = [];
+  try {
+    var np = await firebase.database().ref('namedPatients/' + uid).get();
+    if (np && np.exists()) {
+      Object.values(np.val() || {}).forEach(function(p) {
+        var ts = p.passedAt || p.completedAt || p.addedAt || 0;
+        if (ts > 0) namedLog.push({ ts: ts, dur: p.duration || 0 });
+      });
+    }
+  } catch(e) {}
+
+  return { aiHist: aiHist, localLog: localLog, namedLog: namedLog };
 }
 
-// ── Calculer et afficher les statistiques ─────────────────────────
+// ── Calculer et afficher ───────────────────────────────────────────
 async function mlStatsRender() {
   var section = document.getElementById('mlStatsSection');
   if (!section) return;
-
-  // Toujours afficher la section — même sans données (nouveau compte)
   section.style.display = 'block';
 
   var data = await mlStatsLoad();
-  if (!data) {
-    // Aucune donnée du tout → message d'accueil
-    var todayElFb = document.getElementById('mlStatConsultToday');
-    var avgElFb = document.getElementById('mlStatAvgWait');
-    var peakElFb = document.getElementById('mlStatPeakHour');
-    if (todayElFb) todayElFb.textContent = '0';
-    if (avgElFb) avgElFb.textContent = '—';
-    if (peakElFb) peakElFb.textContent = '—';
-    return;
-  }
+  var aiHist  = (data && data.aiHist)   || [];
+  var localLog = (data && data.localLog) || [];
+  var namedLog = (data && data.namedLog) || [];
 
-  var aiHist = data.aiHist || [];
-  var localLog = data.localLog || [];
-  var namedLog = data.namedLog || [];
-  var queueLog = data.queueLog || [];
-  // Fusionner toutes les sources de timestamps
-  var allEvents = localLog.concat(namedLog).concat(queueLog);
+  // Tous les events avec timestamp
+  var allEvents = localLog.concat(namedLog).sort(function(a,b){return b.ts-a.ts;});
 
-  // ── Durée moyenne consultation ─────────────────────────────────
+  // ── Durée moyenne (depuis ai_history — source fiable) ─────────
   var avgDur = 0;
   if (aiHist.length > 0) {
-    var nums = aiHist.filter(function(v) { return typeof v === 'number' && v > 0; });
-    if (nums.length > 0) {
-      avgDur = Math.round(nums.reduce(function(a, b) { return a + b; }, 0) / nums.length);
-    }
+    avgDur = Math.round(aiHist.reduce(function(a,b){return a+b;},0) / aiHist.length);
   }
   var avgEl = document.getElementById('mlStatAvgWait');
   if (avgEl) avgEl.textContent = avgDur > 0 ? avgDur + ' min' : '—';
 
   // ── Consultations aujourd'hui ──────────────────────────────────
-  var todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  var todayTs = todayStart.getTime();
-
+  var todayTs = new Date(); todayTs.setHours(0,0,0,0); todayTs = todayTs.getTime();
   var consultToday = allEvents.filter(function(e) { return e.ts >= todayTs; }).length;
-
-  // Si pas de log local, estimer depuis ai_history (nb total enregistré)
+  // Si pas de log local mais ai_history existe → estimation
   if (consultToday === 0 && aiHist.length > 0) {
-    // ai_history contient les 20 dernières durées — approximer consultations aujourd'hui
-    consultToday = '~' + Math.max(1, Math.round(aiHist.length / 7));
+    // Afficher le total de l'historique comme info
+    consultToday = aiHist.length + ' tot.';
   }
   var todayEl = document.getElementById('mlStatConsultToday');
-  if (todayEl) todayEl.textContent = consultToday > 0 ? consultToday : '—';
+  if (todayEl) todayEl.textContent = consultToday || '0';
 
   // ── Heure de pointe ────────────────────────────────────────────
-  var hourBuckets = new Array(24).fill(0);
-  allEvents.forEach(function(e) {
-    var h = new Date(e.ts).getHours();
-    hourBuckets[h]++;
-  });
-  var peakHour = hourBuckets.indexOf(Math.max.apply(null, hourBuckets));
   var peakEl = document.getElementById('mlStatPeakHour');
   if (peakEl) {
-    var hasRealData = allEvents.length > 0;
-    peakEl.textContent = hasRealData && Math.max.apply(null, hourBuckets) > 0
-      ? peakHour + 'h–' + (peakHour + 1) + 'h'
-      : '—';
+    if (allEvents.length > 0) {
+      var buckets = new Array(24).fill(0);
+      allEvents.forEach(function(e) { buckets[new Date(e.ts).getHours()]++; });
+      var peak = buckets.indexOf(Math.max.apply(null, buckets));
+      peakEl.textContent = peak + 'h–' + (peak+1) + 'h';
+    } else {
+      peakEl.textContent = '—';
+    }
   }
 
   // ── Graphique 7 jours ──────────────────────────────────────────
-  var days7 = [];
-  for (var i = 6; i >= 0; i--) {
-    var d = new Date();
-    d.setDate(d.getDate() - i);
-    d.setHours(0, 0, 0, 0);
-    var dEnd = new Date(d); dEnd.setHours(23, 59, 59, 999);
-    var count = allEvents.filter(function(e) { return e.ts >= d.getTime() && e.ts <= dEnd.getTime(); }).length;
-    var dayLabels = ['Di', 'Lu', 'Ma', 'Me', 'Je', 'Ve', 'Sa'];
-    days7.push({ day: dayLabels[d.getDay()], count: count, isToday: i === 0 });
-  }
-
-  var maxCount = Math.max.apply(null, days7.map(function(d) { return d.count; }));
-  if (maxCount === 0) maxCount = 1; // éviter division par zéro
-
   var chartEl = document.getElementById('mlBarChart');
   if (chartEl) {
+    var days7 = [];
+    for (var i = 6; i >= 0; i--) {
+      var d0 = new Date(); d0.setDate(d0.getDate()-i); d0.setHours(0,0,0,0);
+      var d1 = new Date(d0); d1.setHours(23,59,59,999);
+      var cnt = allEvents.filter(function(e){ return e.ts>=d0.getTime()&&e.ts<=d1.getTime(); }).length;
+      days7.push({ day: ['Di','Lu','Ma','Me','Je','Ve','Sa'][d0.getDay()], count: cnt, today: i===0 });
+    }
+    var maxC = Math.max(1, Math.max.apply(null, days7.map(function(d){return d.count;})));
     chartEl.innerHTML = days7.map(function(d) {
-      var heightPct = Math.max(5, Math.round((d.count / maxCount) * 100));
+      var h = Math.max(8, Math.round(d.count/maxC*100));
+      var cls = d.today ? 'today' : (d.count>0?'':'low');
       return '<div class="ml-bar-col">'
-        + '<div class="ml-bar ' + (d.isToday ? 'today' : (d.count > 0 ? '' : 'low')) + '" style="height:' + heightPct + '%;min-height:3px" title="' + d.count + ' consultation(s)"></div>'
-        + '<div class="ml-bar-day">' + d.day + '</div>'
-        + '</div>';
+        +'<div class="ml-bar '+cls+'" style="height:'+h+'%" title="'+d.count+' consultation(s)"></div>'
+        +'<div class="ml-bar-day">'+d.day+'</div>'
+        +'</div>';
     }).join('');
   }
 
-  // ── Textes détail ──────────────────────────────────────────────
+  // ── Détail texte ───────────────────────────────────────────────
   var avgDurText = document.getElementById('mlAvgDurText');
-  if (avgDurText) avgDurText.textContent = avgDur > 0 ? avgDur + ' minutes en moyenne' : 'Pas encore de données';
+  if (avgDurText) {
+    avgDurText.textContent = avgDur > 0
+      ? avgDur + ' min en moyenne (' + aiHist.length + ' consultations enregistrées)'
+      : 'Pas encore de données';
+  }
 
-  var cutoff30 = Date.now() - 30 * 86400000;
-  var total30 = allEvents.filter(function(e) { return e.ts > cutoff30; }).length;
-  if (total30 === 0 && aiHist.length > 0) total30 = aiHist.length;
+  var cutoff30 = Date.now() - 30*86400000;
+  var total30 = allEvents.filter(function(e){return e.ts>cutoff30;}).length || aiHist.length;
   var total30Text = document.getElementById('mlTotal30Text');
   if (total30Text) total30Text.textContent = total30 > 0 ? total30 + ' consultations' : 'Pas encore de données';
 }
 
 // ── Toggle détail ──────────────────────────────────────────────────
 function mlStatsToggleDetail() {
-  var detail = document.getElementById('mlStatsDetail');
+  var det = document.getElementById('mlStatsDetail');
   var btn = document.getElementById('mlStatsToggleBtn');
-  if (!detail || !btn) return;
-  var open = detail.style.display !== 'none';
-  detail.style.display = open ? 'none' : 'block';
-  btn.textContent = open ? 'Voir détails ▾' : 'Masquer ▴';
+  if (!det) return;
+  var isHidden = det.style.display === 'none' || det.style.display === '';
+  det.style.display = isHidden ? 'block' : 'none';
+  if (btn) btn.textContent = isHidden ? 'Masquer ▴' : 'Voir détails ▾';
+  // Charger le graphique au premier clic
+  if (isHidden) mlStatsRender();
 }
 
-// ── Enregistrer automatiquement quand un patient passe ────────────
-// Hook sur namedPatientAction (non-destructif : appel après l'action existante)
+// ── Hook : enregistrer quand patient passe (non-destructif) ───────
 (function() {
   var _origNPA = window.namedPatientAction;
   window.namedPatientAction = function(id, action) {
-    if (action === 'passed') {
-      mlStatsRecordConsult(
-        typeof docDuree !== 'undefined' ? docDuree : 15
-      );
-    }
+    if (action === 'passed') mlStatsRecordConsult(window.docDuree || 15);
     if (typeof _origNPA === 'function') return _origNPA.apply(this, arguments);
   };
-})();
-
-// ── Hook sur docRemove (patient compteur passé) ────────────────────
-(function() {
-  var _origDocRemove = window.docRemove;
-  if (typeof _origDocRemove === 'function') {
+  var _origDR = window.docRemove;
+  if (typeof _origDR === 'function') {
     window.docRemove = function() {
-      mlStatsRecordConsult(typeof docDuree !== 'undefined' ? docDuree : 15);
-      return _origDocRemove.apply(this, arguments);
+      mlStatsRecordConsult(window.docDuree || 15);
+      return _origDR.apply(this, arguments);
     };
   }
 })();
-
 
 /* ══════════════════════════════════════════════════════════════════
    PORTAIL STRIPE — Accès self-service abonnement
