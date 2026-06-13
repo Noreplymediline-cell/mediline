@@ -4708,6 +4708,10 @@ function docRemove() {
   } catch {}
   // Réinitialiser le type après consultation terminée
   setConsultType('normale');
+  // Enregistrer la stat au moment exact de la consultation terminée
+  if (typeof mlStatsRecordConsult === 'function') {
+    mlStatsRecordConsult(window.docDuree || 15);
+  }
   docSave(true); docUpdate(); // true = reset startedAt (action réelle)
   showToast('✅ Consultation terminée');
 }
@@ -6351,6 +6355,12 @@ function namedPatientAction(patId, action) {
       const realMins = Math.round((Date.now() - arrived.getTime()) / 60000);
       if (realMins >= 1 && realMins <= 120) AI.record(realMins);
     }
+  }
+
+  // Enregistrer la stat au moment exact où le patient est marqué passé
+  if (action === 'passed' && typeof mlStatsRecordConsult === 'function') {
+    var _dur = window.docDuree || 15;
+    mlStatsRecordConsult(_dur);
   }
 
   // Suppression Firebase — le listener on('value') met à jour l'écran sur tous les appareils.
@@ -9830,6 +9840,8 @@ function mlKeepAlive() {
       if (action === 'passed') {
         await ref.update({ status:'passed', statut:'passed', passedAt: Date.now(), updatedAt: Date.now() });
         setTimeout(function(){ ref.remove().catch(function(){}); }, 2 * 60 * 1000);
+        // Enregistrer la stat immédiatement
+        if (typeof mlStatsRecordConsult === 'function') mlStatsRecordConsult(window.docDuree || 15);
         if (typeof showToast === 'function') showToast('✅ Patient marqué passé', 'green');
       } else {
         await ref.remove();
@@ -11638,166 +11650,203 @@ window.checkPromo = function() {
 })();
 
 /* ══════════════════════════════════════════════════════════════════
-   STATISTIQUES CABINET — Module indépendant v2
-   Sources : ai_history (Firebase) + namedPatients + localStorage
+   STATISTIQUES CABINET — Module v3
+   Stockage : Firebase RTDB  stats/{cabinetId}/daily/{YYYY-MM-DD}
+   Lecture  : onValue temps réel → mise à jour immédiate
    ══════════════════════════════════════════════════════════════════ */
 
-// ── Enregistrer une consultation avec timestamp ────────────────────
-function mlStatsRecordConsult(durationMin) {
-  try {
-    var uid = window.docCurrentUser;
-    if (!uid) return;
-    var key = 'ml_stats_' + uid;
-    var log = JSON.parse(localStorage.getItem(key) || '[]');
-    log.push({ ts: Date.now(), dur: Number(durationMin) || 15 });
-    // Garder 90 jours
-    var cutoff = Date.now() - 90 * 86400000;
-    log = log.filter(function(e) { return e.ts > cutoff; });
-    localStorage.setItem(key, JSON.stringify(log));
-  } catch(e) {}
-}
-
-// ── Charger toutes les données stats ──────────────────────────────
-async function mlStatsLoad() {
+// ── Résoudre le cabinetId (owner uid) du médecin connecté ─────────
+function mlStatsGetCabinetId() {
   var uid = window.docCurrentUser;
   if (!uid) return null;
-
-  // 1. ai_history Firebase (durées, sans timestamps précis)
-  var aiHist = [];
-  try {
-    var s = await firebase.database().ref('users/' + uid + '/ai_history').get();
-    if (s && s.exists()) aiHist = s.val() || [];
-  } catch(e) {}
-  if (!aiHist.length) {
-    try { aiHist = JSON.parse(localStorage.getItem(uid + '_ai_history') || '[]'); } catch(e) {}
+  var lsUsers = JSON.parse(localStorage.getItem('users') || '{}');
+  var u = lsUsers[uid] || window._lastDocData || null;
+  // Invité → utiliser billingOwner/invitedBy/addedBy comme cabinetId
+  if (u) {
+    var owner = u.billingOwner || u.invitedBy || u.addedBy || null;
+    if (owner && owner !== uid) return owner;
   }
-  // Filtrer : garder uniquement les nombres positifs
-  aiHist = aiHist.filter(function(v) { return typeof v === 'number' && v > 0; });
-
-  // 2. Log local avec timestamps (ml_stats_{uid})
-  var localLog = [];
-  try { localLog = JSON.parse(localStorage.getItem('ml_stats_' + uid) || '[]'); } catch(e) {}
-
-  // 3. namedPatients Firebase (timestamps passedAt)
-  var namedLog = [];
-  try {
-    var np = await firebase.database().ref('namedPatients/' + uid).get();
-    if (np && np.exists()) {
-      Object.values(np.val() || {}).forEach(function(p) {
-        var ts = p.passedAt || p.completedAt || p.addedAt || 0;
-        if (ts > 0) namedLog.push({ ts: ts, dur: p.duration || 0 });
-      });
-    }
-  } catch(e) {}
-
-  return { aiHist: aiHist, localLog: localLog, namedLog: namedLog };
+  return uid; // owner principal = son propre uid
 }
 
-// ── Calculer et afficher ───────────────────────────────────────────
-async function mlStatsRender() {
+// ── Date du jour YYYY-MM-DD ────────────────────────────────────────
+function mlStatsToday() {
+  var d = new Date();
+  return d.getFullYear() + '-'
+    + String(d.getMonth()+1).padStart(2,'0') + '-'
+    + String(d.getDate()).padStart(2,'0');
+}
+
+// ── Listener temps réel sur les stats du jour ─────────────────────
+var _mlStatsListener = null;
+var _mlStatsRef      = null;
+
+function mlStatsStartListener() {
+  // Détacher l'ancien listener si présent
+  if (_mlStatsRef && _mlStatsListener) {
+    try { _mlStatsRef.off('value', _mlStatsListener); } catch(e) {}
+  }
+  var cabinetId = mlStatsGetCabinetId();
+  if (!cabinetId || !window.firebase) return;
+  var today = mlStatsToday();
+  _mlStatsRef = firebase.database().ref('stats/' + cabinetId + '/daily/' + today);
+  _mlStatsListener = _mlStatsRef.on('value', function(snap) {
+    var data = snap.exists() ? snap.val() : null;
+    mlStatsUpdateUI(data);
+  });
+}
+
+function mlStatsStopListener() {
+  if (_mlStatsRef && _mlStatsListener) {
+    try { _mlStatsRef.off('value', _mlStatsListener); } catch(e) {}
+    _mlStatsRef = null;
+    _mlStatsListener = null;
+  }
+}
+
+// ── Enregistrer une consultation terminée dans Firebase ───────────
+function mlStatsRecordConsult(durationMin) {
+  var uid       = window.docCurrentUser;
+  var cabinetId = mlStatsGetCabinetId();
+  if (!uid || !cabinetId || !window.firebase) return;
+
+  var dur   = Number(durationMin) || (window.docDuree) || 15;
+  var now   = Date.now();
+  var hour  = new Date(now).getHours();
+  var today = mlStatsToday();
+  var path  = 'stats/' + cabinetId + '/daily/' + today;
+
+  // Lire puis écrire (transaction légère)
+  firebase.database().ref(path).once('value').then(function(snap) {
+    var prev = snap.exists() ? snap.val() : {
+      consultationsToday: 0,
+      totalDuration: 0,
+      hourlyCounts: {},
+      lastConsultAt: 0
+    };
+    var counts = prev.hourlyCounts || {};
+    counts[hour] = (counts[hour] || 0) + 1;
+    return firebase.database().ref(path).set({
+      consultationsToday : (prev.consultationsToday || 0) + 1,
+      totalDuration      : (prev.totalDuration || 0) + dur,
+      hourlyCounts       : counts,
+      lastConsultAt      : now,
+      cabinetId          : cabinetId,
+      date               : today
+    });
+  }).catch(function(e) {
+    console.warn('[STATS] Erreur écriture Firebase:', e);
+    // Fallback localStorage si Firebase échoue
+    try {
+      var key = 'ml_stats_fallback_' + cabinetId + '_' + today;
+      var fb  = JSON.parse(localStorage.getItem(key) || '{"c":0,"d":0}');
+      fb.c++; fb.d += dur;
+      localStorage.setItem(key, JSON.stringify(fb));
+    } catch(le) {}
+  });
+}
+
+// ── Mettre à jour l'UI avec les données reçues ────────────────────
+function mlStatsUpdateUI(data) {
   var section = document.getElementById('mlStatsSection');
   if (!section) return;
   section.style.display = 'block';
 
-  var data = await mlStatsLoad();
-  var aiHist  = (data && data.aiHist)   || [];
-  var localLog = (data && data.localLog) || [];
-  var namedLog = (data && data.namedLog) || [];
+  var count  = data ? (data.consultationsToday || 0) : 0;
+  var totDur = data ? (data.totalDuration || 0)       : 0;
+  var avgDur = count > 0 ? Math.round(totDur / count) : 0;
+  var counts = data ? (data.hourlyCounts || {})       : {};
 
-  // Tous les events avec timestamp
-  var allEvents = localLog.concat(namedLog).sort(function(a,b){return b.ts-a.ts;});
+  // KPI 1 — Consultations aujourd'hui
+  var elCount = document.getElementById('mlStatConsultToday');
+  if (elCount) elCount.textContent = count;
 
-  // ── Durée moyenne (depuis ai_history — source fiable) ─────────
-  var avgDur = 0;
-  if (aiHist.length > 0) {
-    avgDur = Math.round(aiHist.reduce(function(a,b){return a+b;},0) / aiHist.length);
-  }
-  var avgEl = document.getElementById('mlStatAvgWait');
-  if (avgEl) avgEl.textContent = avgDur > 0 ? avgDur + ' min' : '—';
+  // KPI 2 — Durée moyenne
+  var elAvg = document.getElementById('mlStatAvgWait');
+  if (elAvg) elAvg.textContent = avgDur > 0 ? avgDur + ' min' : (count > 0 ? '< 1 min' : '—');
 
-  // ── Consultations aujourd'hui ──────────────────────────────────
-  var todayTs = new Date(); todayTs.setHours(0,0,0,0); todayTs = todayTs.getTime();
-  var consultToday = allEvents.filter(function(e) { return e.ts >= todayTs; }).length;
-  // Si pas de log local mais ai_history existe → estimation
-  if (consultToday === 0 && aiHist.length > 0) {
-    // Afficher le total de l'historique comme info
-    consultToday = aiHist.length + ' tot.';
-  }
-  var todayEl = document.getElementById('mlStatConsultToday');
-  if (todayEl) todayEl.textContent = consultToday || '0';
-
-  // ── Heure de pointe ────────────────────────────────────────────
-  var peakEl = document.getElementById('mlStatPeakHour');
-  if (peakEl) {
-    if (allEvents.length > 0) {
-      var buckets = new Array(24).fill(0);
-      allEvents.forEach(function(e) { buckets[new Date(e.ts).getHours()]++; });
-      var peak = buckets.indexOf(Math.max.apply(null, buckets));
-      peakEl.textContent = peak + 'h–' + (peak+1) + 'h';
-    } else {
-      peakEl.textContent = '—';
-    }
+  // KPI 3 — Heure de pointe
+  var elPeak = document.getElementById('mlStatPeakHour');
+  if (elPeak) {
+    var peakHour = -1, peakVal = 0;
+    Object.keys(counts).forEach(function(h) {
+      if (counts[h] > peakVal) { peakVal = counts[h]; peakHour = Number(h); }
+    });
+    elPeak.textContent = peakHour >= 0 ? peakHour + 'h–' + (peakHour+1) + 'h' : '—';
   }
 
-  // ── Graphique 7 jours ──────────────────────────────────────────
-  var chartEl = document.getElementById('mlBarChart');
-  if (chartEl) {
-    var days7 = [];
-    for (var i = 6; i >= 0; i--) {
-      var d0 = new Date(); d0.setDate(d0.getDate()-i); d0.setHours(0,0,0,0);
-      var d1 = new Date(d0); d1.setHours(23,59,59,999);
-      var cnt = allEvents.filter(function(e){ return e.ts>=d0.getTime()&&e.ts<=d1.getTime(); }).length;
-      days7.push({ day: ['Di','Lu','Ma','Me','Je','Ve','Sa'][d0.getDay()], count: cnt, today: i===0 });
-    }
-    var maxC = Math.max(1, Math.max.apply(null, days7.map(function(d){return d.count;})));
-    chartEl.innerHTML = days7.map(function(d) {
-      var h = Math.max(8, Math.round(d.count/maxC*100));
-      var cls = d.today ? 'today' : (d.count>0?'':'low');
-      return '<div class="ml-bar-col">'
-        +'<div class="ml-bar '+cls+'" style="height:'+h+'%" title="'+d.count+' consultation(s)"></div>'
-        +'<div class="ml-bar-day">'+d.day+'</div>'
-        +'</div>';
-    }).join('');
-  }
-
-  // ── Détail texte ───────────────────────────────────────────────
-  var avgDurText = document.getElementById('mlAvgDurText');
-  if (avgDurText) {
-    avgDurText.textContent = avgDur > 0
-      ? avgDur + ' min en moyenne (' + aiHist.length + ' consultations enregistrées)'
-      : 'Pas encore de données';
-  }
-
-  var cutoff30 = Date.now() - 30*86400000;
-  var total30 = allEvents.filter(function(e){return e.ts>cutoff30;}).length || aiHist.length;
-  var total30Text = document.getElementById('mlTotal30Text');
-  if (total30Text) total30Text.textContent = total30 > 0 ? total30 + ' consultations' : 'Pas encore de données';
+  // Détails — graphique 7 jours + textes
+  mlStatsUpdateDetail(data, count, avgDur, counts);
 }
 
-// ── Toggle détail ──────────────────────────────────────────────────
+// ── Mettre à jour la section détails ──────────────────────────────
+function mlStatsUpdateDetail(data, count, avgDur, counts) {
+  // Durée moyenne texte
+  var elAvgTxt = document.getElementById('mlAvgDurText');
+  if (elAvgTxt) {
+    elAvgTxt.textContent = avgDur > 0
+      ? avgDur + ' min en moyenne (' + count + ' consultation' + (count>1?'s':'') + ' aujourd\'hui)'
+      : count > 0 ? count + ' consultation(s) aujourd\'hui' : 'Pas encore de consultations aujourd\'hui';
+  }
+
+  // Total — on affiche le jour actuel
+  var elTotal = document.getElementById('mlTotal30Text');
+  if (elTotal) elTotal.textContent = count + ' consultation' + (count>1?'s':'') + ' aujourd\'hui';
+
+  // Graphique par heure (répartition du jour)
+  var chartEl = document.getElementById('mlBarChart');
+  if (chartEl) {
+    // Afficher les heures 8h–20h
+    var hours = [];
+    for (var h = 8; h <= 20; h++) hours.push(h);
+    var maxC = 1;
+    hours.forEach(function(h) { if ((counts[h]||0) > maxC) maxC = counts[h]||0; });
+    var now_h = new Date().getHours();
+    chartEl.innerHTML = hours.map(function(h) {
+      var c2 = counts[h] || 0;
+      var pct = Math.max(6, Math.round(c2/maxC*100));
+      var cls = h === now_h ? 'today' : (c2 > 0 ? '' : 'low');
+      return '<div class="ml-bar-col">'
+        + '<div class="ml-bar ' + cls + '" style="height:' + pct + '%" title="' + c2 + ' consult.">' + (c2>0?'<span style="display:none">'+c2+'</span>':'') + '</div>'
+        + '<div class="ml-bar-day">' + h + 'h</div>'
+        + '</div>';
+    }).join('');
+  }
+}
+
+// ── Toggle "Voir détails" / "Masquer détails" ─────────────────────
 function mlStatsToggleDetail() {
   var det = document.getElementById('mlStatsDetail');
   var btn = document.getElementById('mlStatsToggleBtn');
   if (!det) return;
-  var isHidden = det.style.display === 'none' || det.style.display === '';
+  var isHidden = det.style.display === '' || det.style.display === 'none';
   det.style.display = isHidden ? 'block' : 'none';
   if (btn) btn.textContent = isHidden ? 'Masquer ▴' : 'Voir détails ▾';
-  // Charger le graphique au premier clic
-  if (isHidden) mlStatsRender();
 }
 
-// ── Hook : enregistrer quand patient passe (non-destructif) ───────
+// ── Initialisation au chargement du dashboard ─────────────────────
+async function mlStatsRender() {
+  var section = document.getElementById('mlStatsSection');
+  if (!section) return;
+  section.style.display = 'block';
+  // Afficher 0 immédiatement (pas —) pendant le chargement
+  var elC = document.getElementById('mlStatConsultToday');
+  var elA = document.getElementById('mlStatAvgWait');
+  var elP = document.getElementById('mlStatPeakHour');
+  if (elC && elC.textContent === '—') elC.textContent = '0';
+  if (elA && elA.textContent === '—') elA.textContent = '—';
+  if (elP && elP.textContent === '—') elP.textContent = '—';
+  // Démarrer le listener temps réel
+  mlStatsStartListener();
+}
+
+// ── Nettoyer au logout ────────────────────────────────────────────
 (function() {
-  var _origNPA = window.namedPatientAction;
-  window.namedPatientAction = function(id, action) {
-    if (action === 'passed') mlStatsRecordConsult(window.docDuree || 15);
-    if (typeof _origNPA === 'function') return _origNPA.apply(this, arguments);
-  };
-  var _origDR = window.docRemove;
-  if (typeof _origDR === 'function') {
-    window.docRemove = function() {
-      mlStatsRecordConsult(window.docDuree || 15);
-      return _origDR.apply(this, arguments);
+  var _origLogout = window.docLogout;
+  if (typeof _origLogout === 'function') {
+    window.docLogout = function() {
+      mlStatsStopListener();
+      return _origLogout.apply(this, arguments);
     };
   }
 })();
