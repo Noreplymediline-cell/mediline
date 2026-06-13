@@ -2212,7 +2212,7 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
       <div class="ml-stats-section" id="mlStatsSection">
         <div class="ml-stats-title">
           📊 Statistiques du cabinet
-          <span class="ml-stats-toggle" onclick="mlStatsToggleDetail()" id="mlStatsToggleBtn">Voir détails ▾</span>
+          <button class="ml-stats-toggle" id="mlStatsToggleBtn" onclick="mlStatsToggleDetail()" type="button" style="background:none;border:none;cursor:pointer;font:inherit;color:inherit;padding:0">Voir détails ▾</button>
         </div>
         <div class="ml-stats-grid">
           <div class="ml-stat-card">
@@ -11746,30 +11746,59 @@ function mlStatsRecordConsult(durationMin) {
   var path  = 'stats/' + cabinetId + '/daily/' + today;
   console.log('[STATS] Écriture Firebase → path:', path, '| dur:', dur, '| hour:', hour);
 
-  // Lire puis écrire (transaction légère)
-  firebase.database().ref(path).once('value').then(function(snap) {
-    var prev = snap.exists() ? snap.val() : {
-      consultationsToday: 0,
-      totalDuration: 0,
-      hourlyCounts: {},
-      lastConsultAt: 0
-    };
-    var counts = prev.hourlyCounts || {};
+  // Transaction atomique — évite la race condition si 2 consultations simultanées
+  firebase.database().ref(path).transaction(function(current) {
+    if (current === null) {
+      // Première entrée du jour
+      var h0 = {};
+      h0[hour] = 1;
+      return {
+        consultationsToday: 1,
+        totalDuration: dur,
+        hourlyCounts: h0,
+        lastConsultAt: now,
+        cabinetId: cabinetId,
+        date: today
+      };
+    }
+    // Incrémenter l'existant
+    var counts = current.hourlyCounts || {};
     counts[hour] = (counts[hour] || 0) + 1;
-    return firebase.database().ref(path).set({
-      consultationsToday : (prev.consultationsToday || 0) + 1,
-      totalDuration      : (prev.totalDuration || 0) + dur,
-      hourlyCounts       : counts,
-      lastConsultAt      : now,
-      cabinetId          : cabinetId,
-      date               : today
-    });
-  }).catch(function(e) {
-    console.error('[STATS] ERREUR Firebase stats:', e && (e.message || e.code || e));
-    // Afficher erreur visible dans l'interface
-    var elC = document.getElementById('mlStatConsultToday');
-    if (elC) elC.title = 'Erreur Firebase: ' + (e && (e.code || e.message) || 'inconnu') + ' — vérifiez les règles Firebase (ajoutez stats dans rules)';
-    if (elC) elC.style.color = '#ef4444';
+    return {
+      consultationsToday: (current.consultationsToday || 0) + 1,
+      totalDuration: (current.totalDuration || 0) + dur,
+      hourlyCounts: counts,
+      lastConsultAt: now,
+      cabinetId: cabinetId,
+      date: today
+    };
+  }, function(error, committed, snapshot) {
+    if (error) {
+      console.error('[STATS] ERREUR transaction Firebase:', error.code || error.message || error);
+      // Message d'erreur visible dans la carte stats
+      var elC = document.getElementById('mlStatConsultToday');
+      if (elC) {
+        elC.style.color = '#ef4444';
+        elC.title = 'Erreur: ' + (error.code || error.message || 'inconnu');
+        // Si PERMISSION_DENIED → message explicite
+        if (String(error.code || error.message || '').includes('PERMISSION_DENIED')) {
+          elC.textContent = 'ERR';
+          var section = document.getElementById('mlStatsSection');
+          if (section) {
+            var errDiv = document.getElementById('mlStatsFirebaseError');
+            if (!errDiv) {
+              errDiv = document.createElement('div');
+              errDiv.id = 'mlStatsFirebaseError';
+              errDiv.style.cssText = 'margin-top:8px;padding:8px 12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:11px;color:#dc2626;text-align:center';
+              section.appendChild(errDiv);
+            }
+            errDiv.textContent = '⚠️ Règles Firebase manquantes — ajoutez "stats" dans vos règles Realtime Database.';
+          }
+        }
+      }
+    } else if (committed) {
+      console.log('[STATS] Transaction OK — path:', path, '| dur:', dur, '| total:', snapshot.val() && snapshot.val().consultationsToday);
+    }
   });
 }
 
@@ -11860,15 +11889,41 @@ async function mlStatsRender() {
   var section = document.getElementById('mlStatsSection');
   if (!section) return;
   section.style.display = 'block';
+
   // Afficher 0 immédiatement (pas —) pendant le chargement
   var elC = document.getElementById('mlStatConsultToday');
   var elA = document.getElementById('mlStatAvgWait');
   var elP = document.getElementById('mlStatPeakHour');
-  if (elC && elC.textContent === '—') elC.textContent = '0';
-  if (elA && elA.textContent === '—') elA.textContent = '—';
-  if (elP && elP.textContent === '—') elP.textContent = '—';
-  // Démarrer le listener temps réel
-  mlStatsStartListener();
+  if (elC) elC.textContent = '0';
+  if (elA) elA.textContent = '—';
+  if (elP) elP.textContent = '—';
+
+  // Tester l'accès Firebase stats/ avant de démarrer le listener
+  var cabinetId = mlStatsGetCabinetId();
+  var today = mlStatsToday();
+  if (cabinetId && window.firebase) {
+    firebase.database().ref('stats/' + cabinetId + '/daily/' + today)
+      .once('value')
+      .then(function(snap) {
+        // Accès OK — démarrer le listener temps réel
+        mlStatsStartListener();
+        // Afficher données immédiates si existantes
+        if (snap.exists()) mlStatsUpdateUI(snap.val());
+      })
+      .catch(function(e) {
+        var isPermission = String(e.code || e.message || '').includes('PERMISSION_DENIED');
+        console.error('[STATS] Accès Firebase stats/ refusé:', e.code || e.message);
+        // Afficher message d'erreur clair dans la section stats
+        if (elC) { elC.textContent = '—'; elC.style.color = '#ef4444'; }
+        var errDiv = document.getElementById('mlStatsFirebaseError') || document.createElement('div');
+        errDiv.id = 'mlStatsFirebaseError';
+        errDiv.style.cssText = 'margin-top:8px;padding:10px 14px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:12px;color:#dc2626;text-align:left;line-height:1.5';
+        errDiv.innerHTML = isPermission
+          ? '⚠️ <strong>Règles Firebase à mettre à jour.</strong><br>Ajoutez <code>"stats": { ".read": true, ".write": true }</code> dans vos règles Realtime Database.'
+          : '⚠️ Erreur connexion Firebase stats: ' + (e.code || e.message || 'inconnu');
+        if (!errDiv.parentNode) section.appendChild(errDiv);
+      });
+  }
 }
 
 // ── Nettoyer au logout ────────────────────────────────────────────
