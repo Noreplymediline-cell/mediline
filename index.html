@@ -3873,20 +3873,24 @@ async function sendEmailResend(to, subject, htmlBody, type) {
   }
 
   // 1. Essayer via le worker Resend (priorité)
+  // Note: URL en dur ici car ML_EMAIL_API_URL est déclaré après cette fonction
+  const _apiUrl = '/api/send-email';
+  console.log('[OTP] Tentative envoi via', _apiUrl, '| type:', payload.type, '| to:', to);
   try {
-    const res = await fetch(ML_EMAIL_API_URL, {
+    const res = await fetch(_apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.ok) {
-      console.log('[MediLine] Resend envoyé:', type, to, '| id:', data.id);
+      console.log('[OTP] Resend OK — id:', data.id, '| to:', to);
       return true;
     }
-    console.error('[MediLine] Resend échec:', res.status, data.error);
+    // Log précis de l'erreur Resend
+    console.error('[OTP] Resend échec — HTTP', res.status, '| erreur:', data.error || JSON.stringify(data));
   } catch(e) {
-    console.error('[MediLine] Worker indisponible:', e.message);
+    console.error('[OTP] Worker fetch erreur:', e.message);
   }
 
   // 2. Fallback EmailJS
