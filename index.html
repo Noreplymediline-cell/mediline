@@ -1049,12 +1049,6 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
   .logos-band-items{gap:18px}
   .btn-nav-patient{display:none}
 }
-
-/* ── Portail Stripe ───────────────────────────────────────────────── */
-.ml-portal-btn{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:9px 16px;border-radius:10px;border:1.5px solid #e0e7ff;background:#f5f7ff;color:#3730a3;font-size:12px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;transition:all .18s;width:100%;justify-content:center}
-.ml-portal-btn:hover{background:#e0e7ff;border-color:#a5b4fc}
-.ml-portal-btn:disabled{opacity:.5;cursor:not-allowed}
-.ml-portal-btn svg{flex-shrink:0}
 </style>
 <!-- Firebase SDKs (doit charger avant le JS applicatif) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -2188,8 +2182,6 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
       </div>
       <!-- ═══════════════════════════════════════════════════════ -->
 
-
-            <!-- ════════════════════════════════════════════════════════ -->
       <div class="doc-divider"></div>
       <button class="doc-btn doc-btn-ghost" onclick="docLogout()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -3798,44 +3790,41 @@ function waitForEmailJS(callback, maxWait) {
 }
 
 async function sendEmailResend(to, subject, htmlBody, type) {
-  // Envoi uniquement via Cloudflare Worker /api/send-email → Resend
+  // Le nom de fonction reste pareil pour ne rien casser dans le SaaS.
+  // Mais l'envoi passe maintenant par EmailJS.
 
-  let payload = { to, type };
+  // Attendre que EmailJS soit chargé (jusqu'à 5s)
+  if (typeof emailjs === 'undefined') {
+    await new Promise(function(resolve) { waitForEmailJS(resolve, 5000); });
+  }
+  if (!initEmailJS()) return false;
 
-  if (type === 'verification' || type === 'otp') {
+  let templateId = EMAILJS_TEMPLATE_RESET_ID;
+  const params = { email: to };
+
+  if (type === 'verification') {
+    templateId = EMAILJS_TEMPLATE_CODE_ID;
     const m = String(subject || '').match(/(\d{6})/);
-    payload.code = m ? m[1] : '';
-    payload.type = 'otp';
+    params.code = m ? m[1] : '';
   } else if (type === 'reset') {
+    templateId = EMAILJS_TEMPLATE_RESET_ID;
     const m = String(htmlBody || '').match(/href=["']([^"']+)["']/i);
-    payload.link = m ? m[1] : String(htmlBody || '');
-    payload.type = 'reset';
+    params.link = m ? m[1] : '';
   } else {
-    return true; // bienvenue / autre → pas bloquant
+    // Pas de template bienvenue configuré : on ne bloque pas l'app.
+    return true;
   }
 
   try {
-    const res = await fetch('/api/send-email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok && data.ok) {
-      console.log('[OTP] Email envoyé — id:', data.id, '| to:', to);
-      return true;
-    }
-    // Stocker l'erreur exacte pour l'afficher à l'utilisateur
-    const errMsg = data.error || ('HTTP ' + res.status);
-    console.error('[OTP] Échec Resend:', errMsg, '| to:', to);
-    sendEmailResend._lastError = errMsg;
-    return false;
-  } catch(e) {
-    console.error('[OTP] Fetch erreur:', e.message);
-    sendEmailResend._lastError = e.message;
+    await emailjs.send(EMAILJS_SERVICE_ID, templateId, params);
+    console.log('[MediLine] EmailJS envoyé:', type, to);
+    return true;
+  } catch (e) {
+    console.error('[MediLine] Erreur EmailJS:', e);
     return false;
   }
 }
+
 
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -3916,9 +3905,8 @@ async function startEmailVerification(name, email, onSuccess) {
   var verifCode = document.getElementById('verifyCode');
   if (verifCode) verifCode.value = '';
   if (!sent) {
-    const _err = sendEmailResend._lastError || '';
-    console.error('[OTP] startEmailVerification échec pour:', email, '| détail:', _err);
-    if (verifSub) verifSub.textContent = 'Envoi du code en cours... Si vous ne le recevez pas, cliquez sur "Renvoyer le code".';
+    // Email non envoyé : conserver _pendingVerif pour que l'utilisateur puisse réessayer
+    if (verifSub) verifSub.textContent = 'L\'envoi a échoué pour ' + email + '. Cliquez sur "Renvoyer le code" ou vérifiez vos spams.';
     docMsg('verifyMsg', '⚠️ Email non reçu ? Cliquez sur "Renvoyer le code".', 'error');
     return;
   }
@@ -3942,13 +3930,8 @@ async function resendVerifCode() {
   _pendingVerif.expiry = Date.now() + 10 * 60 * 1000;
   docMsg('verifyMsg', '📧 Envoi d’un nouveau code…', 'success');
   const sent = await sendEmailResend(_pendingVerif.email, '🔒 Code MediLine : ' + code, '', 'verification');
-  if (sent) {
-    docMsg('verifyMsg', '📧 Nouveau code envoyé ! Vérifiez votre boîte mail.', 'success');
-  } else {
-    const _err = sendEmailResend._lastError || '';
-    console.error('[OTP] resendVerifCode échec:', _err);
-    docMsg('verifyMsg', '❌ Échec d\'envoi. Vérifiez vos spams ou réessayez dans quelques secondes.', 'error');
-  }
+  if (sent) docMsg('verifyMsg', '📧 Nouveau code envoyé par email.', 'success');
+  else docMsg('verifyMsg', '❌ Impossible de renvoyer le code.', 'error');
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -6308,7 +6291,6 @@ function namedPatientAction(patId, action) {
     }
   }
 
-  // Enregistrer la stat au moment exact où le patient est marqué passé
   // Suppression Firebase — le listener on('value') met à jour l'écran sur tous les appareils.
   // Ne pas toucher docPatients, ne pas appeler docSave, ne pas appeler docUpdate.
   firebase.database().ref('namedPatients/' + docCurrentUser + '/' + patId)
@@ -8184,7 +8166,6 @@ async function dmInitSection() {
   }
 
   dmRenderPlanInfo();
-
   dmLoadAndRender();
 }
 
@@ -8262,43 +8243,6 @@ async function dmRenderPlanInfo() {
     }
   }
   el.innerHTML = msg + renewBtn;
-
-  // ── Bouton portail Stripe (owners avec abonnement actif uniquement) ──
-  // Additif : ne modifie pas msg ni renewBtn
-  try {
-    var _isOwnerForPortal = !isInvitedDoctor(u, docCurrentUser);
-    var _hasPaidForPortal = u.hasPaid || (u.subscriptionStatus === 'active');
-    // Lire stripeCustomerId depuis userData ou cabinet
-    var _stripeId = u.stripeCustomerId || (_cabData && _cabData.stripeCustomerId) || null;
-    var portalContainer = document.getElementById('mlPortalBtnContainer');
-    if (!portalContainer) {
-      portalContainer = document.createElement('div');
-      portalContainer.id = 'mlPortalBtnContainer';
-      el.parentNode.insertBefore(portalContainer, el.nextSibling);
-    }
-    if (_isOwnerForPortal && _hasPaidForPortal && _stripeId) {
-      // Owner avec abonnement Stripe actif → bouton portail
-      portalContainer.innerHTML =
-        '<button class="ml-portal-btn" id="mlPortalBtn" onclick="mlOpenStripePortal()">'
-        + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>'
-        + ' Gérer mon abonnement'
-        + '</button>';
-    } else if (!_isOwnerForPortal) {
-      // Médecin invité → afficher info abonnement du owner (pas de bouton portail pour lui)
-      var _ownerRef2 = u.billingOwner || u.invitedBy || u.addedBy || null;
-      if (_ownerRef2) {
-        portalContainer.innerHTML =
-          '<div style="font-size:11px;color:var(--muted);margin-top:8px;padding:8px 12px;background:var(--bg);border-radius:9px;border:1px solid var(--border);display:flex;align-items:center;gap:6px">'
-          + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>'
-          + ' Votre accès est inclus dans l\'abonnement du cabinet.'
-          + '</div>';
-      } else {
-        portalContainer.innerHTML = '';
-      }
-    } else {
-      portalContainer.innerHTML = '';
-    }
-  } catch(_pe) {}
   el.className = 'dm-plan-info' + (cls ? ' ' + cls : '');
 
   const addBtn = document.getElementById('dmAddBtn');
@@ -9782,7 +9726,6 @@ function mlKeepAlive() {
       if (action === 'passed') {
         await ref.update({ status:'passed', statut:'passed', passedAt: Date.now(), updatedAt: Date.now() });
         setTimeout(function(){ ref.remove().catch(function(){}); }, 2 * 60 * 1000);
-        // Enregistrer la stat immédiatement
         if (typeof showToast === 'function') showToast('✅ Patient marqué passé', 'green');
       } else {
         await ref.remove();
@@ -11589,65 +11532,6 @@ window.checkPromo = function() {
   }
 
 })();
-
-/* ══════════════════════════════════════════════════════════════════
-   PORTAIL STRIPE — Accès self-service abonnement
-   ══════════════════════════════════════════════════════════════════ */
-
-async function mlOpenStripePortal() {
-  const btn = document.getElementById('mlPortalBtn');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Ouverture…'; }
-
-  try {
-    // Récupérer le stripeCustomerId depuis Firebase (source fiable)
-    let customerId = null;
-    try {
-      const snap = await firebase.database().ref('users/' + docCurrentUser + '/stripeCustomerId').get();
-      if (snap && snap.exists()) customerId = snap.val();
-    } catch(e) {}
-    // Fallback localStorage
-    if (!customerId) {
-      const lc = JSON.parse(localStorage.getItem('users') || '{}');
-      const u = lc[docCurrentUser] || {};
-      customerId = u.stripeCustomerId || null;
-    }
-
-    if (!customerId) {
-      showToast('⚠️ Aucun abonnement Stripe actif trouvé.', 'orange');
-      if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Gérer mon abonnement'; }
-      return;
-    }
-
-    // Appeler le worker /api/stripe-portal
-    const res = await fetch('/api/stripe-portal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        customerId,
-        returnUrl: location.href
-      })
-    });
-
-    const data = await res.json();
-
-    if (!res.ok || !data.url) {
-      console.error('[PORTAL] Erreur:', data.error);
-      showToast('❌ ' + (data.error || 'Impossible d\'ouvrir le portail.'), 'red');
-      if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Gérer mon abonnement'; }
-      return;
-    }
-
-    // Ouvrir le portail Stripe dans un nouvel onglet
-    window.open(data.url, '_blank');
-    if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Gérer mon abonnement'; }
-
-  } catch(e) {
-    console.error('[PORTAL] Erreur réseau:', e);
-    showToast('❌ Erreur de connexion au portail.', 'red');
-    if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Gérer mon abonnement'; }
-  }
-}
-
 </script>
 
 </body></html>
