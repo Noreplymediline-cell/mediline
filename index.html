@@ -3852,10 +3852,44 @@ function waitForEmailJS(callback, maxWait) {
 }
 
 async function sendEmailResend(to, subject, htmlBody, type) {
-  // Le nom de fonction reste pareil pour ne rien casser dans le SaaS.
-  // Mais l'envoi passe maintenant par EmailJS.
+  // Envoi via Cloudflare Worker /api/send-email → Resend
+  // EmailJS conservé comme fallback uniquement
 
-  // Attendre que EmailJS soit chargé (jusqu'à 5s)
+  let payload = { to, type };
+
+  if (type === 'verification' || type === 'otp') {
+    // Extraire le code OTP du sujet "🔒 Code MediLine : 123456"
+    const m = String(subject || '').match(/(\d{6})/);
+    payload.code = m ? m[1] : '';
+    payload.type = 'otp';
+  } else if (type === 'reset') {
+    // Extraire le lien du htmlBody
+    const m = String(htmlBody || '').match(/href=["']([^"']+)["']/i);
+    payload.link = m ? m[1] : String(htmlBody || '');
+    payload.type = 'reset';
+  } else {
+    // welcome / other → pas bloquant
+    return true;
+  }
+
+  // 1. Essayer via le worker Resend (priorité)
+  try {
+    const res = await fetch(ML_EMAIL_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.ok) {
+      console.log('[MediLine] Resend envoyé:', type, to, '| id:', data.id);
+      return true;
+    }
+    console.error('[MediLine] Resend échec:', res.status, data.error);
+  } catch(e) {
+    console.error('[MediLine] Worker indisponible:', e.message);
+  }
+
+  // 2. Fallback EmailJS
   if (typeof emailjs === 'undefined') {
     await new Promise(function(resolve) { waitForEmailJS(resolve, 5000); });
   }
@@ -3863,30 +3897,22 @@ async function sendEmailResend(to, subject, htmlBody, type) {
 
   let templateId = EMAILJS_TEMPLATE_RESET_ID;
   const params = { email: to };
-
-  if (type === 'verification') {
+  if (type === 'otp' || type === 'verification') {
     templateId = EMAILJS_TEMPLATE_CODE_ID;
-    const m = String(subject || '').match(/(\d{6})/);
-    params.code = m ? m[1] : '';
+    params.code = payload.code;
   } else if (type === 'reset') {
     templateId = EMAILJS_TEMPLATE_RESET_ID;
-    const m = String(htmlBody || '').match(/href=["']([^"']+)["']/i);
-    params.link = m ? m[1] : '';
-  } else {
-    // Pas de template bienvenue configuré : on ne bloque pas l'app.
-    return true;
+    params.link = payload.link;
   }
-
   try {
     await emailjs.send(EMAILJS_SERVICE_ID, templateId, params);
-    console.log('[MediLine] EmailJS envoyé:', type, to);
+    console.log('[MediLine] EmailJS fallback envoyé:', type, to);
     return true;
-  } catch (e) {
-    console.error('[MediLine] Erreur EmailJS:', e);
+  } catch(e) {
+    console.error('[MediLine] EmailJS erreur:', e && (e.text || e.status || e));
     return false;
   }
 }
-
 
 
 /* ══════════════════════════════════════════════════════════════════════
