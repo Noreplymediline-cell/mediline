@@ -1050,25 +1050,6 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
   .btn-nav-patient{display:none}
 }
 
-/* ── Statistiques cabinet ─────────────────────────────────────────── */
-.ml-stats-section{background:#fff;border-radius:16px;padding:18px;margin-bottom:14px;border:1.5px solid var(--border)}
-.ml-stats-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--blue);margin-bottom:14px;display:flex;align-items:center;gap:6px}
-.ml-stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
-.ml-stat-card{background:var(--bg);border-radius:12px;padding:12px 10px;text-align:center;border:1px solid var(--border)}
-.ml-stat-card-val{font-size:22px;font-weight:800;color:var(--navy);line-height:1}
-.ml-stat-card-label{font-size:10px;color:var(--muted);margin-top:4px;font-weight:600}
-.ml-chart-wrap{margin-top:4px}
-.ml-chart-label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
-.ml-bar-chart{display:flex;align-items:flex-end;gap:4px;height:60px;padding:0 2px}
-.ml-bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px}
-.ml-bar{width:100%;border-radius:4px 4px 0 0;background:var(--blue);min-height:3px;transition:height .3s}
-.ml-bar.today{background:#2563eb}
-.ml-bar.low{background:#bfdbfe}
-.ml-bar-day{font-size:8px;color:var(--muted);font-weight:700}
-.ml-stats-toggle{font-size:11px;color:var(--blue);cursor:pointer;font-weight:700;margin-left:auto;opacity:.8}
-.ml-stats-toggle:hover{opacity:1}
-@media(max-width:360px){.ml-stats-grid{grid-template-columns:repeat(2,1fr)}}
-
 /* ── Portail Stripe ───────────────────────────────────────────────── */
 .ml-portal-btn{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:9px 16px;border-radius:10px;border:1.5px solid #e0e7ff;background:#f5f7ff;color:#3730a3;font-size:12px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;transition:all .18s;width:100%;justify-content:center}
 .ml-portal-btn:hover{background:#e0e7ff;border-color:#a5b4fc}
@@ -2208,42 +2189,7 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
       <!-- ═══════════════════════════════════════════════════════ -->
 
 
-      <!-- ═══════════ STATISTIQUES CABINET ═══════════════════════ -->
-      <div class="ml-stats-section" id="mlStatsSection">
-        <div class="ml-stats-title">
-          📊 Statistiques du cabinet
-          <button class="ml-stats-toggle" id="mlStatsToggleBtn" onclick="mlStatsToggleDetail()" type="button" style="background:none;border:none;cursor:pointer;font:inherit;color:inherit;padding:0">Voir détails ▾</button>
-        </div>
-        <div class="ml-stats-grid">
-          <div class="ml-stat-card">
-            <div class="ml-stat-card-val" id="mlStatConsultToday">—</div>
-            <div class="ml-stat-card-label">Consultations aujourd'hui</div>
-          </div>
-          <div class="ml-stat-card">
-            <div class="ml-stat-card-val" id="mlStatAvgWait">—</div>
-            <div class="ml-stat-card-label">Durée moy. consultation</div>
-          </div>
-          <div class="ml-stat-card">
-            <div class="ml-stat-card-val" id="mlStatPeakHour">—</div>
-            <div class="ml-stat-card-label">Heure de pointe</div>
-          </div>
-        </div>
-        <div id="mlStatsDetail" style="display:none">
-          <div class="ml-chart-wrap">
-            <div class="ml-chart-label">Consultations — 7 derniers jours</div>
-            <div class="ml-bar-chart" id="mlBarChart"></div>
-          </div>
-          <div style="margin-top:14px">
-            <div class="ml-chart-label">Durée moy. par consultation</div>
-            <div id="mlAvgDurText" style="font-size:13px;color:var(--navy);font-weight:700;padding:4px 0">—</div>
-          </div>
-          <div style="margin-top:10px">
-            <div class="ml-chart-label">Total consultations (30 jours)</div>
-            <div id="mlTotal30Text" style="font-size:13px;color:var(--navy);font-weight:700;padding:4px 0">—</div>
-          </div>
-        </div>
-      </div>
-      <!-- ════════════════════════════════════════════════════════ -->
+            <!-- ════════════════════════════════════════════════════════ -->
       <div class="doc-divider"></div>
       <button class="doc-btn doc-btn-ghost" onclick="docLogout()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -3852,68 +3798,41 @@ function waitForEmailJS(callback, maxWait) {
 }
 
 async function sendEmailResend(to, subject, htmlBody, type) {
-  // Envoi via Cloudflare Worker /api/send-email → Resend
-  // EmailJS conservé comme fallback uniquement
+  // Envoi uniquement via Cloudflare Worker /api/send-email → Resend
 
   let payload = { to, type };
 
   if (type === 'verification' || type === 'otp') {
-    // Extraire le code OTP du sujet "🔒 Code MediLine : 123456"
     const m = String(subject || '').match(/(\d{6})/);
     payload.code = m ? m[1] : '';
     payload.type = 'otp';
   } else if (type === 'reset') {
-    // Extraire le lien du htmlBody
     const m = String(htmlBody || '').match(/href=["']([^"']+)["']/i);
     payload.link = m ? m[1] : String(htmlBody || '');
     payload.type = 'reset';
   } else {
-    // welcome / other → pas bloquant
-    return true;
+    return true; // bienvenue / autre → pas bloquant
   }
 
-  // 1. Essayer via le worker Resend (priorité)
-  // Note: URL en dur ici car ML_EMAIL_API_URL est déclaré après cette fonction
-  const _apiUrl = '/api/send-email';
-  console.log('[OTP] Tentative envoi via', _apiUrl, '| type:', payload.type, '| to:', to);
   try {
-    const res = await fetch(_apiUrl, {
+    const res = await fetch('/api/send-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.ok) {
-      console.log('[OTP] Resend OK — id:', data.id, '| to:', to);
+      console.log('[OTP] Email envoyé — id:', data.id, '| to:', to);
       return true;
     }
-    // Log précis de l'erreur Resend
-    console.error('[OTP] Resend échec — HTTP', res.status, '| erreur:', data.error || JSON.stringify(data));
+    // Stocker l'erreur exacte pour l'afficher à l'utilisateur
+    const errMsg = data.error || ('HTTP ' + res.status);
+    console.error('[OTP] Échec Resend:', errMsg, '| to:', to);
+    sendEmailResend._lastError = errMsg;
+    return false;
   } catch(e) {
-    console.error('[OTP] Worker fetch erreur:', e.message);
-  }
-
-  // 2. Fallback EmailJS
-  if (typeof emailjs === 'undefined') {
-    await new Promise(function(resolve) { waitForEmailJS(resolve, 5000); });
-  }
-  if (!initEmailJS()) return false;
-
-  let templateId = EMAILJS_TEMPLATE_RESET_ID;
-  const params = { email: to };
-  if (type === 'otp' || type === 'verification') {
-    templateId = EMAILJS_TEMPLATE_CODE_ID;
-    params.code = payload.code;
-  } else if (type === 'reset') {
-    templateId = EMAILJS_TEMPLATE_RESET_ID;
-    params.link = payload.link;
-  }
-  try {
-    await emailjs.send(EMAILJS_SERVICE_ID, templateId, params);
-    console.log('[MediLine] EmailJS fallback envoyé:', type, to);
-    return true;
-  } catch(e) {
-    console.error('[MediLine] EmailJS erreur:', e && (e.text || e.status || e));
+    console.error('[OTP] Fetch erreur:', e.message);
+    sendEmailResend._lastError = e.message;
     return false;
   }
 }
@@ -3997,8 +3916,9 @@ async function startEmailVerification(name, email, onSuccess) {
   var verifCode = document.getElementById('verifyCode');
   if (verifCode) verifCode.value = '';
   if (!sent) {
-    // Email non envoyé : conserver _pendingVerif pour que l'utilisateur puisse réessayer
-    if (verifSub) verifSub.textContent = 'L\'envoi a échoué pour ' + email + '. Cliquez sur "Renvoyer le code" ou vérifiez vos spams.';
+    const _err = sendEmailResend._lastError || '';
+    console.error('[OTP] startEmailVerification échec pour:', email, '| détail:', _err);
+    if (verifSub) verifSub.textContent = 'Envoi du code en cours... Si vous ne le recevez pas, cliquez sur "Renvoyer le code".';
     docMsg('verifyMsg', '⚠️ Email non reçu ? Cliquez sur "Renvoyer le code".', 'error');
     return;
   }
@@ -4022,8 +3942,13 @@ async function resendVerifCode() {
   _pendingVerif.expiry = Date.now() + 10 * 60 * 1000;
   docMsg('verifyMsg', '📧 Envoi d’un nouveau code…', 'success');
   const sent = await sendEmailResend(_pendingVerif.email, '🔒 Code MediLine : ' + code, '', 'verification');
-  if (sent) docMsg('verifyMsg', '📧 Nouveau code envoyé par email.', 'success');
-  else docMsg('verifyMsg', '❌ Impossible de renvoyer le code.', 'error');
+  if (sent) {
+    docMsg('verifyMsg', '📧 Nouveau code envoyé ! Vérifiez votre boîte mail.', 'success');
+  } else {
+    const _err = sendEmailResend._lastError || '';
+    console.error('[OTP] resendVerifCode échec:', _err);
+    docMsg('verifyMsg', '❌ Échec d\'envoi. Vérifiez vos spams ou réessayez dans quelques secondes.', 'error');
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -4738,11 +4663,6 @@ function docRemove() {
   } catch {}
   // Réinitialiser le type après consultation terminée
   setConsultType('normale');
-  // Enregistrer la stat au moment exact de la consultation terminée
-  console.log('CONSULTATION_TERMINEE_CLICK', { source: 'docRemove', dur: window.docDuree || 15, cabinetId: mlStatsGetCabinetId ? mlStatsGetCabinetId() : 'N/A' });
-  if (typeof mlStatsRecordConsult === 'function') {
-    mlStatsRecordConsult(window.docDuree || 15);
-  }
   docSave(true); docUpdate(); // true = reset startedAt (action réelle)
   showToast('✅ Consultation terminée');
 }
@@ -6389,12 +6309,6 @@ function namedPatientAction(patId, action) {
   }
 
   // Enregistrer la stat au moment exact où le patient est marqué passé
-  if (action === 'passed' && typeof mlStatsRecordConsult === 'function') {
-    var _dur = window.docDuree || 15;
-    console.log('CONSULTATION_TERMINEE_CLICK', { source: 'namedPatientAction', patId: patId, dur: _dur, cabinetId: mlStatsGetCabinetId ? mlStatsGetCabinetId() : 'N/A' });
-    mlStatsRecordConsult(_dur);
-  }
-
   // Suppression Firebase — le listener on('value') met à jour l'écran sur tous les appareils.
   // Ne pas toucher docPatients, ne pas appeler docSave, ne pas appeler docUpdate.
   firebase.database().ref('namedPatients/' + docCurrentUser + '/' + patId)
@@ -8271,10 +8185,6 @@ async function dmInitSection() {
 
   dmRenderPlanInfo();
 
-  // Charger les statistiques (module additif — ne modifie rien d'existant)
-  setTimeout(function() {
-    if (typeof mlStatsRender === 'function') mlStatsRender().catch(function(){});
-  }, 800);
   dmLoadAndRender();
 }
 
@@ -9873,8 +9783,6 @@ function mlKeepAlive() {
         await ref.update({ status:'passed', statut:'passed', passedAt: Date.now(), updatedAt: Date.now() });
         setTimeout(function(){ ref.remove().catch(function(){}); }, 2 * 60 * 1000);
         // Enregistrer la stat immédiatement
-        console.log('CONSULTATION_TERMINEE_CLICK', { source: 'v8_namedPatientAction', patId: patId, dur: window.docDuree || 15, cabinetId: mlStatsGetCabinetId ? mlStatsGetCabinetId() : 'N/A' });
-        if (typeof mlStatsRecordConsult === 'function') mlStatsRecordConsult(window.docDuree || 15);
         if (typeof showToast === 'function') showToast('✅ Patient marqué passé', 'green');
       } else {
         await ref.remove();
@@ -11680,265 +11588,6 @@ window.checkPromo = function() {
     setTimeout(function(){ try{ window.dmInitSection&&window.dmInitSection(); }catch(e){} },800);
   }
 
-})();
-
-/* ══════════════════════════════════════════════════════════════════
-   STATISTIQUES CABINET — Module v3
-   Stockage : Firebase RTDB  stats/{cabinetId}/daily/{YYYY-MM-DD}
-   Lecture  : onValue temps réel → mise à jour immédiate
-   ══════════════════════════════════════════════════════════════════ */
-
-// ── Résoudre le cabinetId (owner uid) du médecin connecté ─────────
-function mlStatsGetCabinetId() {
-  var uid = window.docCurrentUser;
-  if (!uid) return null;
-  var lsUsers = JSON.parse(localStorage.getItem('users') || '{}');
-  var u = lsUsers[uid] || window._lastDocData || null;
-  // Invité → utiliser billingOwner/invitedBy/addedBy comme cabinetId
-  if (u) {
-    var owner = u.billingOwner || u.invitedBy || u.addedBy || null;
-    if (owner && owner !== uid) return owner;
-  }
-  return uid; // owner principal = son propre uid
-}
-
-// ── Date du jour YYYY-MM-DD ────────────────────────────────────────
-function mlStatsToday() {
-  var d = new Date();
-  return d.getFullYear() + '-'
-    + String(d.getMonth()+1).padStart(2,'0') + '-'
-    + String(d.getDate()).padStart(2,'0');
-}
-
-// ── Listener temps réel sur les stats du jour ─────────────────────
-var _mlStatsListener = null;
-var _mlStatsRef      = null;
-
-function mlStatsStartListener() {
-  // Détacher l'ancien listener si présent
-  if (_mlStatsRef && _mlStatsListener) {
-    try { _mlStatsRef.off('value', _mlStatsListener); } catch(e) {}
-  }
-  var cabinetId = mlStatsGetCabinetId();
-  if (!cabinetId || !window.firebase) return;
-  var today = mlStatsToday();
-  _mlStatsRef = firebase.database().ref('stats/' + cabinetId + '/daily/' + today);
-  _mlStatsListener = _mlStatsRef.on('value', function(snap) {
-    var data = snap.exists() ? snap.val() : null;
-    mlStatsUpdateUI(data);
-  });
-}
-
-function mlStatsStopListener() {
-  if (_mlStatsRef && _mlStatsListener) {
-    try { _mlStatsRef.off('value', _mlStatsListener); } catch(e) {}
-    _mlStatsRef = null;
-    _mlStatsListener = null;
-  }
-}
-
-// ── Enregistrer une consultation terminée dans Firebase ───────────
-function mlStatsRecordConsult(durationMin) {
-  var uid       = window.docCurrentUser;
-  var cabinetId = mlStatsGetCabinetId();
-  if (!uid || !cabinetId || !window.firebase) return;
-
-  var dur   = Number(durationMin) || (window.docDuree) || 15;
-  var now   = Date.now();
-  var hour  = new Date(now).getHours();
-  var today = mlStatsToday();
-  var path  = 'stats/' + cabinetId + '/daily/' + today;
-  console.log('[STATS] Écriture Firebase → path:', path, '| dur:', dur, '| hour:', hour);
-
-  // Transaction atomique — évite la race condition si 2 consultations simultanées
-  firebase.database().ref(path).transaction(function(current) {
-    if (current === null) {
-      // Première entrée du jour
-      var h0 = {};
-      h0[hour] = 1;
-      return {
-        consultationsToday: 1,
-        totalDuration: dur,
-        hourlyCounts: h0,
-        lastConsultAt: now,
-        cabinetId: cabinetId,
-        date: today
-      };
-    }
-    // Incrémenter l'existant
-    var counts = current.hourlyCounts || {};
-    counts[hour] = (counts[hour] || 0) + 1;
-    return {
-      consultationsToday: (current.consultationsToday || 0) + 1,
-      totalDuration: (current.totalDuration || 0) + dur,
-      hourlyCounts: counts,
-      lastConsultAt: now,
-      cabinetId: cabinetId,
-      date: today
-    };
-  }, function(error, committed, snapshot) {
-    if (error) {
-      console.error('[STATS] ERREUR transaction Firebase:', error.code || error.message || error);
-      // Message d'erreur visible dans la carte stats
-      var elC = document.getElementById('mlStatConsultToday');
-      if (elC) {
-        elC.style.color = '#ef4444';
-        elC.title = 'Erreur: ' + (error.code || error.message || 'inconnu');
-        // Si PERMISSION_DENIED → message explicite
-        if (String(error.code || error.message || '').includes('PERMISSION_DENIED')) {
-          elC.textContent = 'ERR';
-          var section = document.getElementById('mlStatsSection');
-          if (section) {
-            var errDiv = document.getElementById('mlStatsFirebaseError');
-            if (!errDiv) {
-              errDiv = document.createElement('div');
-              errDiv.id = 'mlStatsFirebaseError';
-              errDiv.style.cssText = 'margin-top:8px;padding:8px 12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:11px;color:#dc2626;text-align:center';
-              section.appendChild(errDiv);
-            }
-            errDiv.textContent = '⚠️ Règles Firebase manquantes — ajoutez "stats" dans vos règles Realtime Database.';
-          }
-        }
-      }
-    } else if (committed) {
-      console.log('[STATS] Transaction OK — path:', path, '| dur:', dur, '| total:', snapshot.val() && snapshot.val().consultationsToday);
-    }
-  });
-}
-
-// ── Mettre à jour l'UI avec les données reçues ────────────────────
-function mlStatsUpdateUI(data) {
-  var section = document.getElementById('mlStatsSection');
-  if (!section) return;
-  section.style.display = 'block';
-
-  var count  = data ? (data.consultationsToday || 0) : 0;
-  var totDur = data ? (data.totalDuration || 0)       : 0;
-  var avgDur = count > 0 ? Math.round(totDur / count) : 0;
-  var counts = data ? (data.hourlyCounts || {})       : {};
-
-  // KPI 1 — Consultations aujourd'hui
-  var elCount = document.getElementById('mlStatConsultToday');
-  if (elCount) elCount.textContent = count;
-
-  // KPI 2 — Durée moyenne
-  var elAvg = document.getElementById('mlStatAvgWait');
-  if (elAvg) elAvg.textContent = avgDur > 0 ? avgDur + ' min' : (count > 0 ? '< 1 min' : '—');
-
-  // KPI 3 — Heure de pointe
-  var elPeak = document.getElementById('mlStatPeakHour');
-  if (elPeak) {
-    var peakHour = -1, peakVal = 0;
-    Object.keys(counts).forEach(function(h) {
-      if (counts[h] > peakVal) { peakVal = counts[h]; peakHour = Number(h); }
-    });
-    elPeak.textContent = peakHour >= 0 ? peakHour + 'h–' + (peakHour+1) + 'h' : '—';
-  }
-
-  // Détails — graphique 7 jours + textes
-  mlStatsUpdateDetail(data, count, avgDur, counts);
-}
-
-// ── Mettre à jour la section détails ──────────────────────────────
-function mlStatsUpdateDetail(data, count, avgDur, counts) {
-  // Durée moyenne texte
-  var elAvgTxt = document.getElementById('mlAvgDurText');
-  if (elAvgTxt) {
-    elAvgTxt.textContent = avgDur > 0
-      ? avgDur + ' min en moyenne (' + count + ' consultation' + (count>1?'s':'') + ' aujourd\'hui)'
-      : count > 0 ? count + ' consultation(s) aujourd\'hui' : 'Pas encore de consultations aujourd\'hui';
-  }
-
-  // Total — on affiche le jour actuel
-  var elTotal = document.getElementById('mlTotal30Text');
-  if (elTotal) elTotal.textContent = count + ' consultation' + (count>1?'s':'') + ' aujourd\'hui';
-
-  // Graphique par heure (répartition du jour)
-  var chartEl = document.getElementById('mlBarChart');
-  if (chartEl) {
-    // Afficher les heures 8h–20h
-    var hours = [];
-    for (var h = 8; h <= 20; h++) hours.push(h);
-    var maxC = 1;
-    hours.forEach(function(h) { if ((counts[h]||0) > maxC) maxC = counts[h]||0; });
-    var now_h = new Date().getHours();
-    chartEl.innerHTML = hours.map(function(h) {
-      var c2 = counts[h] || 0;
-      var pct = Math.max(6, Math.round(c2/maxC*100));
-      var cls = h === now_h ? 'today' : (c2 > 0 ? '' : 'low');
-      return '<div class="ml-bar-col">'
-        + '<div class="ml-bar ' + cls + '" style="height:' + pct + '%" title="' + c2 + ' consult.">' + (c2>0?'<span style="display:none">'+c2+'</span>':'') + '</div>'
-        + '<div class="ml-bar-day">' + h + 'h</div>'
-        + '</div>';
-    }).join('');
-  }
-}
-
-// ── Toggle "Voir détails" / "Masquer détails" ─────────────────────
-function mlStatsToggleDetail() {
-  var det = document.getElementById('mlStatsDetail');
-  var btn = document.getElementById('mlStatsToggleBtn');
-  if (!det) { console.error('[STATS] mlStatsDetail introuvable dans le DOM'); return; }
-  var isHidden = det.style.display === '' || det.style.display === 'none';
-  det.style.display = isHidden ? 'block' : 'none';
-  if (btn) btn.textContent = isHidden ? 'Masquer ▴' : 'Voir détails ▾';
-  console.log('[STATS] toggle détails →', isHidden ? 'ouvert' : 'fermé');
-}
-// Alias global garanti (au cas où le onclick HTML ne trouve pas la fonction)
-window.mlStatsToggleDetail  = mlStatsToggleDetail;
-window.toggleStatsDetails   = mlStatsToggleDetail;
-
-// ── Initialisation au chargement du dashboard ─────────────────────
-async function mlStatsRender() {
-  var section = document.getElementById('mlStatsSection');
-  if (!section) return;
-  section.style.display = 'block';
-
-  // Afficher 0 immédiatement (pas —) pendant le chargement
-  var elC = document.getElementById('mlStatConsultToday');
-  var elA = document.getElementById('mlStatAvgWait');
-  var elP = document.getElementById('mlStatPeakHour');
-  if (elC) elC.textContent = '0';
-  if (elA) elA.textContent = '—';
-  if (elP) elP.textContent = '—';
-
-  // Tester l'accès Firebase stats/ avant de démarrer le listener
-  var cabinetId = mlStatsGetCabinetId();
-  var today = mlStatsToday();
-  if (cabinetId && window.firebase) {
-    firebase.database().ref('stats/' + cabinetId + '/daily/' + today)
-      .once('value')
-      .then(function(snap) {
-        // Accès OK — démarrer le listener temps réel
-        mlStatsStartListener();
-        // Afficher données immédiates si existantes
-        if (snap.exists()) mlStatsUpdateUI(snap.val());
-      })
-      .catch(function(e) {
-        var isPermission = String(e.code || e.message || '').includes('PERMISSION_DENIED');
-        console.error('[STATS] Accès Firebase stats/ refusé:', e.code || e.message);
-        // Afficher message d'erreur clair dans la section stats
-        if (elC) { elC.textContent = '—'; elC.style.color = '#ef4444'; }
-        var errDiv = document.getElementById('mlStatsFirebaseError') || document.createElement('div');
-        errDiv.id = 'mlStatsFirebaseError';
-        errDiv.style.cssText = 'margin-top:8px;padding:10px 14px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:12px;color:#dc2626;text-align:left;line-height:1.5';
-        errDiv.innerHTML = isPermission
-          ? '⚠️ <strong>Règles Firebase à mettre à jour.</strong><br>Ajoutez <code>"stats": { ".read": true, ".write": true }</code> dans vos règles Realtime Database.'
-          : '⚠️ Erreur connexion Firebase stats: ' + (e.code || e.message || 'inconnu');
-        if (!errDiv.parentNode) section.appendChild(errDiv);
-      });
-  }
-}
-
-// ── Nettoyer au logout ────────────────────────────────────────────
-(function() {
-  var _origLogout = window.docLogout;
-  if (typeof _origLogout === 'function') {
-    window.docLogout = function() {
-      mlStatsStopListener();
-      return _origLogout.apply(this, arguments);
-    };
-  }
 })();
 
 /* ══════════════════════════════════════════════════════════════════
