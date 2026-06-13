@@ -4709,6 +4709,7 @@ function docRemove() {
   // Réinitialiser le type après consultation terminée
   setConsultType('normale');
   // Enregistrer la stat au moment exact de la consultation terminée
+  console.log('CONSULTATION_TERMINEE_CLICK', { source: 'docRemove', dur: window.docDuree || 15, cabinetId: mlStatsGetCabinetId ? mlStatsGetCabinetId() : 'N/A' });
   if (typeof mlStatsRecordConsult === 'function') {
     mlStatsRecordConsult(window.docDuree || 15);
   }
@@ -6360,6 +6361,7 @@ function namedPatientAction(patId, action) {
   // Enregistrer la stat au moment exact où le patient est marqué passé
   if (action === 'passed' && typeof mlStatsRecordConsult === 'function') {
     var _dur = window.docDuree || 15;
+    console.log('CONSULTATION_TERMINEE_CLICK', { source: 'namedPatientAction', patId: patId, dur: _dur, cabinetId: mlStatsGetCabinetId ? mlStatsGetCabinetId() : 'N/A' });
     mlStatsRecordConsult(_dur);
   }
 
@@ -9841,6 +9843,7 @@ function mlKeepAlive() {
         await ref.update({ status:'passed', statut:'passed', passedAt: Date.now(), updatedAt: Date.now() });
         setTimeout(function(){ ref.remove().catch(function(){}); }, 2 * 60 * 1000);
         // Enregistrer la stat immédiatement
+        console.log('CONSULTATION_TERMINEE_CLICK', { source: 'v8_namedPatientAction', patId: patId, dur: window.docDuree || 15, cabinetId: mlStatsGetCabinetId ? mlStatsGetCabinetId() : 'N/A' });
         if (typeof mlStatsRecordConsult === 'function') mlStatsRecordConsult(window.docDuree || 15);
         if (typeof showToast === 'function') showToast('✅ Patient marqué passé', 'green');
       } else {
@@ -11715,6 +11718,7 @@ function mlStatsRecordConsult(durationMin) {
   var hour  = new Date(now).getHours();
   var today = mlStatsToday();
   var path  = 'stats/' + cabinetId + '/daily/' + today;
+  console.log('[STATS] Écriture Firebase → path:', path, '| dur:', dur, '| hour:', hour);
 
   // Lire puis écrire (transaction légère)
   firebase.database().ref(path).once('value').then(function(snap) {
@@ -11735,14 +11739,11 @@ function mlStatsRecordConsult(durationMin) {
       date               : today
     });
   }).catch(function(e) {
-    console.warn('[STATS] Erreur écriture Firebase:', e);
-    // Fallback localStorage si Firebase échoue
-    try {
-      var key = 'ml_stats_fallback_' + cabinetId + '_' + today;
-      var fb  = JSON.parse(localStorage.getItem(key) || '{"c":0,"d":0}');
-      fb.c++; fb.d += dur;
-      localStorage.setItem(key, JSON.stringify(fb));
-    } catch(le) {}
+    console.error('[STATS] ERREUR Firebase stats:', e && (e.message || e.code || e));
+    // Afficher erreur visible dans l'interface
+    var elC = document.getElementById('mlStatConsultToday');
+    if (elC) elC.title = 'Erreur Firebase: ' + (e && (e.code || e.message) || 'inconnu') + ' — vérifiez les règles Firebase (ajoutez stats dans rules)';
+    if (elC) elC.style.color = '#ef4444';
   });
 }
 
@@ -11818,11 +11819,15 @@ function mlStatsUpdateDetail(data, count, avgDur, counts) {
 function mlStatsToggleDetail() {
   var det = document.getElementById('mlStatsDetail');
   var btn = document.getElementById('mlStatsToggleBtn');
-  if (!det) return;
+  if (!det) { console.error('[STATS] mlStatsDetail introuvable dans le DOM'); return; }
   var isHidden = det.style.display === '' || det.style.display === 'none';
   det.style.display = isHidden ? 'block' : 'none';
   if (btn) btn.textContent = isHidden ? 'Masquer ▴' : 'Voir détails ▾';
+  console.log('[STATS] toggle détails →', isHidden ? 'ouvert' : 'fermé');
 }
+// Alias global garanti (au cas où le onclick HTML ne trouve pas la fonction)
+window.mlStatsToggleDetail  = mlStatsToggleDetail;
+window.toggleStatsDetails   = mlStatsToggleDetail;
 
 // ── Initialisation au chargement du dashboard ─────────────────────
 async function mlStatsRender() {
