@@ -5583,6 +5583,9 @@ async function openCabinet(code) {
   (function() {
     var _cabName = cab.name || '';
     var _cabAddr = cab.adresse || '';
+    // Pré-charger les reviews dans le cache pour l'affichage immédiat
+    getRevs(code).catch(function(){});
+
     firebase.database().ref('cabinets/' + code + '/custom').get()
       .then(function(snap) {
         var custom = (snap && snap.exists()) ? snap.val() : {};
@@ -5610,6 +5613,18 @@ async function openCabinet(code) {
             ? '<img src="' + logo.replace(/"/g,'') + '" style="width:56px;height:56px;border-radius:12px;object-fit:cover;flex-shrink:0" alt="">'
             : '<div style="width:56px;height:56px;border-radius:12px;background:rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0">🏥</div>';
 
+          // Note moyenne depuis le cache
+          var revs = _revsCache[code] || [];
+          var avgStr = '';
+          if (revs.length > 0) {
+            var avg = (revs.reduce(function(a,x){return a+x.stars;},0)/revs.length);
+            var stars = '★'.repeat(Math.round(avg)) + '☆'.repeat(5-Math.round(avg));
+            avgStr = '<div style="font-size:12px;color:rgba(255,255,255,.9);margin-top:4px">'
+              + '<span style="color:#fbbf24">' + stars + '</span>'
+              + ' <span style="opacity:.8">' + avg.toFixed(1) + ' (' + revs.length + ' avis)</span>'
+              + '</div>';
+          }
+
           hdrWrap.style.cssText = 'margin-bottom:14px;border-radius:14px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.15)';
           hdrWrap.innerHTML =
             '<div style="background:linear-gradient(135deg,' + color + ',' + lighten(color) + ');padding:18px 16px;display:flex;align-items:center;gap:14px">'
@@ -5617,8 +5632,29 @@ async function openCabinet(code) {
             + '<div style="flex:1;min-width:0">'
             +   '<div style="font-size:17px;font-weight:800;color:#fff;line-height:1.2">' + esc(_cabName) + '</div>'
             +   (_cabAddr ? '<div style="font-size:12px;color:rgba(255,255,255,.8);margin-top:3px">📍 ' + esc(_cabAddr) + '</div>' : '')
+            +   avgStr
             + '</div>'
             + '</div>';
+          
+          // Recharger avec note à jour dès que reviews chargées
+          getRevs(code).then(function(revsFresh) {
+            if (!revsFresh.length) return;
+            var avgF = (revsFresh.reduce(function(a,x){return a+x.stars;},0)/revsFresh.length);
+            var starsF = '★'.repeat(Math.round(avgF)) + '☆'.repeat(5-Math.round(avgF));
+            var avgEl = hdrWrap.querySelector('.cab-avg-stars');
+            if (avgEl) {
+              avgEl.innerHTML = '<span style="color:#fbbf24">' + starsF + '</span>'
+                + ' <span style="opacity:.8">' + avgF.toFixed(1) + ' (' + revsFresh.length + ' avis)</span>';
+            } else if (revsFresh.length !== revs.length) {
+              // Reconstruire si les données ont changé
+              var newAvgStr = '<div class="cab-avg-stars" style="font-size:12px;color:rgba(255,255,255,.9);margin-top:4px">'
+                + '<span style="color:#fbbf24">' + starsF + '</span>'
+                + ' <span style="opacity:.8">' + avgF.toFixed(1) + ' (' + revsFresh.length + ' avis)</span>'
+                + '</div>';
+              var nameDiv = hdrWrap.querySelector('div[style*="font-size:17px"]');
+              if (nameDiv && nameDiv.parentNode) nameDiv.parentNode.insertAdjacentHTML('beforeend', newAvgStr);
+            }
+          }).catch(function(){});
 
           if (nameEl) nameEl.style.display = 'none';
           if (addrEl) addrEl.style.display = 'none';
@@ -5809,7 +5845,12 @@ async function openCabinet(code) {
   // Génère le HTML d'une carte médecin
   function renderCard(uid, name, total, specialty) {
     const cardId = 'doc-card-' + uid.replace(/[^a-z0-9]/gi, '_');
-    const avg = avgRating(name);
+    // avgRating est async — utiliser le cache si dispo, sinon null
+    const avg = _revsCache[name]
+      ? (_revsCache[name].length ? (_revsCache[name].reduce(function(a,x){return a+x.stars;},0)/_revsCache[name].length).toFixed(1) : null)
+      : null;
+    // Charger en fond pour la prochaine fois
+    if (!_revsCache[name]) getRevs(name).catch(function(){});
     let waitDisplay, statusLabel, statusCls;
     if (total === null) {
       // Firebase charge encore
@@ -6630,24 +6671,62 @@ async function renderDoc(name) {
   const gl = user && user.googleLink || '';
   const gb = document.getElementById('googleReviewBtn');
   if (gl) { gb.href = gl; gb.classList.remove('hidden'); } else gb.classList.add('hidden');
-  renderReviews(name);
+  renderReviews(name).catch(function(){});
   patTs();
 
   // Recalculer info personnelle si patient enregistré
   updatePatPersonalInfo(name, p, r, PAT_DUREE);
 }
 
-function getRevs(doc) { return JSON.parse(localStorage.getItem('reviews_' + doc)) || []; }
-function saveRevs(doc, r) { localStorage.setItem('reviews_' + doc, JSON.stringify(r)); }
-function avgRating(doc) { const r = getRevs(doc); return r.length ? (r.reduce((a, x) => a + x.stars, 0) / r.length).toFixed(1) : null; }
+// ── Avis : stockage Firebase cabinets/{doc}/reviews ─────────────
+// getRevs/saveRevs async — ne pas appeler en dehors d'une fonction async
+var _revsCache = {}; // cache mémoire session
+
+async function getRevs(doc) {
+  if (_revsCache[doc]) return _revsCache[doc];
+  // 1. Firebase
+  try {
+    var snap = await firebase.database().ref('cabinets/' + doc + '/reviews').once('value');
+    if (snap && snap.exists()) {
+      var data = snap.val();
+      var arr = Array.isArray(data) ? data : Object.values(data);
+      _revsCache[doc] = arr;
+      return arr;
+    }
+  } catch(e) {}
+  // 2. Fallback localStorage (migration)
+  var local = JSON.parse(localStorage.getItem('reviews_' + doc) || '[]');
+  _revsCache[doc] = local;
+  return local;
+}
+
+async function saveRevs(doc, r) {
+  _revsCache[doc] = r;
+  // Sauvegarder dans Firebase
+  try {
+    var obj = {};
+    r.forEach(function(rev, i) { obj[i] = rev; });
+    await firebase.database().ref('cabinets/' + doc + '/reviews').set(obj);
+    // Migrer : supprimer localStorage une fois sauvegardé dans Firebase
+    localStorage.removeItem('reviews_' + doc);
+  } catch(e) {
+    // Fallback localStorage si Firebase échoue
+    localStorage.setItem('reviews_' + doc, JSON.stringify(r));
+  }
+}
+
+async function avgRating(doc) {
+  var r = await getRevs(doc);
+  return r.length ? (r.reduce(function(a, x) { return a + x.stars; }, 0) / r.length).toFixed(1) : null;
+}
 
 function pickStar(n) {
   patSelectedStar = n;
   document.querySelectorAll('#starPicker .sp-star').forEach((s, i) => s.classList.toggle('on', i < n));
 }
 
-function renderReviews(doc) {
-  const rv = getRevs(doc);
+async function renderReviews(doc) {
+  const rv = await getRevs(doc);
   const a = document.getElementById('avgScore'), b = document.getElementById('avgStars'), c = document.getElementById('avgCount'), d = document.getElementById('distBars'), e = document.getElementById('reviewList');
   if (!rv.length) { e.innerHTML = '<div class="no-reviews">Aucun avis pour le moment.<br>Soyez le premier à partager ! 💬</div>'; a.textContent = '—'; b.textContent = ''; c.textContent = ''; d.style.display = 'none'; return; }
   const avg = rv.reduce((s, r) => s + r.stars, 0) / rv.length;
@@ -6667,18 +6746,22 @@ function renderReviews(doc) {
     </div>`).join('');
 }
 
-function submitReview() {
+async function submitReview() {
   const m = document.getElementById('reviewMsg');
   if (!patSelectedStar) { m.textContent = 'Sélectionnez une note.'; m.className = 'review-msg err'; return; }
   const ps = document.getElementById('pseudoInput').value.trim();
   const tx = document.getElementById('reviewInput').value.trim();
-  const rv = getRevs(patCurrentDoc);
+  const btn = document.querySelector('.submit-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Envoi…'; }
+  const rv = await getRevs(patCurrentDoc);
   rv.push({ stars: patSelectedStar, pseudo: ps || 'Anonyme', text: tx, date: new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) });
-  saveRevs(patCurrentDoc, rv); patSelectedStar = 0; pickStar(0);
+  await saveRevs(patCurrentDoc, rv);
+  patSelectedStar = 0; pickStar(0);
   document.getElementById('pseudoInput').value = ''; document.getElementById('reviewInput').value = '';
   m.textContent = '✓ Merci pour votre avis !'; m.className = 'review-msg ok';
+  if (btn) { btn.disabled = false; btn.textContent = '✉️ Publier mon avis'; }
   setTimeout(() => { m.className = 'review-msg'; }, 3000);
-  renderReviews(patCurrentDoc);
+  await renderReviews(patCurrentDoc);
 }
 
 function doRefresh(btn) {
