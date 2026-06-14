@@ -4802,6 +4802,7 @@ function docRemove() {
   setConsultType('normale');
   docSave(true); docUpdate(); // true = reset startedAt (action réelle)
   showToast('✅ Consultation terminée');
+  if (typeof mlStRecord === 'function') mlStRecord(Number(window.docDuree || 15));
 }
 
 function docDelay() { docRetard += 5; AI.recordDelay(5); docSave(true); docUpdate(); showToast('⚠️ +5 min de retard'); }
@@ -9799,6 +9800,7 @@ function mlKeepAlive() {
     var attente = document.getElementById('attente');
     if (attente) attente.textContent = total;
     if (typeof showToast === 'function') showToast('✅ Consultation terminée');
+    if (typeof mlStRecord === 'function') mlStRecord(Number(window.docDuree || 15));
   };
   window.docDelay = function() {
     _lockLocalAction();
