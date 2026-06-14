@@ -2276,11 +2276,23 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
                onclick="document.getElementById('mlCsFileInput').click()"
                ondragover="event.preventDefault();this.classList.add('drag-on')"
                ondragleave="this.classList.remove('drag-on')"
-               ondrop="mlCsDrop(event)">
+               ondrop="(function(e){e.preventDefault();document.getElementById('mlCsDrop').classList.remove('drag-on');var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];if(f)document.getElementById('mlCsFileInput').dispatchEvent(Object.assign(new Event('change'),{target:{files:[f]}}));var r=new FileReader();if(f){r.onload=function(ev){var b=ev.target.result;document.getElementById('mlCsLogoData').value=b;var prev=document.getElementById('mlCsLogoPreview');var lbl=document.getElementById('mlCsDropLabel');if(prev){prev.src=b;prev.style.display='block';}if(lbl){lbl.style.display='none';}};r.readAsDataURL(f);}})(event)">
             <img id="mlCsLogoPreview" class="ml-cs-logo-prev" alt="Logo">
             <span id="mlCsDropLabel">📁 Glisser une image ici<br><small style="color:#94a3b8">ou cliquer pour choisir</small></span>
           </div>
-          <input type="file" id="mlCsFileInput" accept="image/*" style="display:none" onchange="mlCsHandleFile(this.files[0])">
+          <input type="file" id="mlCsFileInput" accept="image/*" style="display:none" onchange="(function(f){
+  if(!f||!f.type.startsWith('image/'))return;
+  var r=new FileReader();
+  r.onload=function(ev){
+    var b=ev.target.result;
+    document.getElementById('mlCsLogoData').value=b;
+    var prev=document.getElementById('mlCsLogoPreview');
+    var lbl=document.getElementById('mlCsDropLabel');
+    if(prev){prev.src=b;prev.style.display='block';}
+    if(lbl){lbl.style.display='none';}
+  };
+  r.readAsDataURL(f);
+})(this.files[0])">
           <input type="hidden" id="mlCsLogoData">
         </div>
         <div class="ml-cs-field">
@@ -2291,7 +2303,27 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
           <label>Message d'accueil patients</label>
           <textarea id="mlCsWelcome" rows="3" placeholder="Ex : Bienvenue ! Votre médecin vous reçoit dans les meilleurs délais."></textarea>
         </div>
-        <button class="ml-cs-save" id="mlCsSaveBtn" onclick="mlCsSave()">💾 Sauvegarder</button>
+        <button class="ml-cs-save" id="mlCsSaveBtn" onclick="(async function(){
+  var uid = window.docCurrentUser || localStorage.getItem('ml_session');
+  var msg = document.getElementById('mlCsMsg');
+  var btn = document.getElementById('mlCsSaveBtn');
+  if(!uid){if(msg){msg.textContent='❌ Session expirée';msg.style.color='#ef4444';}return;}
+  if(btn){btn.disabled=true;btn.textContent='⏳...';}
+  var data={
+    color:(document.getElementById('mlCsColor')||{}).value||'#1d4ed8',
+    welcome:(document.getElementById('mlCsWelcome')||{}).value||''
+  };
+  var logo=(document.getElementById('mlCsLogoData')||{}).value||'';
+  if(logo)data.logoData=logo;
+  try{
+    await firebase.database().ref('cabinets/'+uid+'/custom').set(data);
+    if(msg){msg.textContent='✅ Sauvegardé!';msg.style.color='#059669';}
+    setTimeout(function(){if(msg)msg.textContent='';},3000);
+  }catch(e){
+    if(msg){msg.textContent='❌ '+(e.message||'Erreur');msg.style.color='#ef4444';}
+  }
+  if(btn){btn.disabled=false;btn.textContent='💾 Sauvegarder';}
+})()">💾 Sauvegarder</button>
         <div class="ml-cs-msg" id="mlCsMsg"></div>
       </div>
       <!-- ════════════════════════════════════════════════════════ -->
