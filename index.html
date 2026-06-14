@@ -1050,30 +1050,53 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
   .btn-nav-patient{display:none}
 }
 
-/* ── Page patient personnalisée ──────────────────────────────────── */
-.cab-custom-banner{width:100%;height:80px;border-radius:14px 14px 0 0;background:linear-gradient(135deg,#1d4ed8,#60a5fa);margin-bottom:0;display:block;overflow:hidden;flex-shrink:0}
-.cab-custom-header{display:flex;align-items:center;gap:12px;padding:14px 16px 10px;background:#fff;border-radius:0 0 14px 14px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.07)}
-.cab-custom-logo{width:52px;height:52px;border-radius:12px;object-fit:cover;border:2px solid #e5e7eb;flex-shrink:0;background:#f1f5f9;display:flex;align-items:center;justify-content:center;font-size:24px}
-.cab-custom-logo img{width:52px;height:52px;border-radius:10px;object-fit:cover}
-.cab-custom-name{font-size:16px;font-weight:800;color:#0d1117;line-height:1.2}
-.cab-custom-addr{font-size:12px;color:#6b7280;margin-top:2px}
-.cab-custom-msg{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 14px;font-size:13px;color:#1e40af;margin:0 0 12px;font-style:italic;line-height:1.5}
-/* ── Formulaire personnalisation dashboard ───────────────────────── */
-.ml-custom-section{background:#fff;border-radius:16px;padding:18px;margin-bottom:14px;border:1.5px solid var(--border)}
-.ml-custom-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--blue);margin-bottom:14px}
-.ml-custom-field{margin-bottom:12px}
-.ml-custom-field label{display:block;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
-.ml-custom-field textarea{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;font-family:inherit;color:var(--navy);background:var(--bg);box-sizing:border-box;resize:vertical}
-.ml-custom-field textarea:focus{border-color:var(--blue);outline:none}
-.ml-custom-dropzone{border:2px dashed #cbd5e1;border-radius:12px;padding:20px 14px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;display:flex;align-items:center;justify-content:center;gap:10px;flex-direction:column;min-height:80px;background:#f8fafc}
-.ml-custom-dropzone:hover,.ml-custom-dropzone.drag-over{border-color:#2563eb;background:#eff6ff}
-.ml-custom-dropzone span{font-size:12px;color:#64748b;line-height:1.5}
-.ml-custom-dropzone small{font-size:11px;color:#94a3b8}
-.ml-custom-logo-preview{width:60px;height:60px;border-radius:10px;object-fit:cover;border:1.5px solid #e5e7eb}
-.ml-custom-save-btn{width:100%;padding:11px;background:var(--blue);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;margin-top:4px}
-.ml-custom-save-btn:active{opacity:.85}
-.ml-custom-save-btn:disabled{opacity:.6;cursor:not-allowed}
-.ml-custom-msg{font-size:12px;margin-top:6px;min-height:16px;text-align:center}
+/* ── Statistiques cabinet ─────────────────────────────────────────── */
+.ml-stats-section{background:#fff;border-radius:16px;padding:18px;margin-bottom:14px;border:1.5px solid var(--border)}
+.ml-stats-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--blue);margin-bottom:14px;display:flex;align-items:center;gap:6px}
+.ml-stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+.ml-stat-card{background:var(--bg);border-radius:12px;padding:12px 10px;text-align:center;border:1px solid var(--border)}
+.ml-stat-card-val{font-size:22px;font-weight:800;color:var(--navy);line-height:1}
+.ml-stat-card-label{font-size:10px;color:var(--muted);margin-top:4px;font-weight:600}
+.ml-chart-wrap{margin-top:4px}
+.ml-chart-label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.ml-bar-chart{display:flex;align-items:flex-end;gap:4px;height:60px;padding:0 2px}
+.ml-bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px}
+.ml-bar{width:100%;border-radius:4px 4px 0 0;background:var(--blue);min-height:3px;transition:height .3s}
+.ml-bar.today{background:#2563eb}
+.ml-bar.low{background:#bfdbfe}
+.ml-bar-day{font-size:8px;color:var(--muted);font-weight:700}
+.ml-stats-toggle{font-size:11px;color:var(--blue);cursor:pointer;font-weight:700;margin-left:auto;opacity:.8}
+.ml-stats-toggle:hover{opacity:1}
+@media(max-width:360px){.ml-stats-grid{grid-template-columns:repeat(2,1fr)}}
+
+/* ── Portail Stripe ───────────────────────────────────────────────── */
+.ml-portal-btn{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:9px 16px;border-radius:10px;border:1.5px solid #e0e7ff;background:#f5f7ff;color:#3730a3;font-size:12px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;transition:all .18s;width:100%;justify-content:center}
+.ml-portal-btn:hover{background:#e0e7ff;border-color:#a5b4fc}
+.ml-portal-btn:disabled{opacity:.5;cursor:not-allowed}
+.ml-portal-btn svg{flex-shrink:0}
+
+/* ── Personnalisation page cabinet ───────────────────────────── */
+.cab-hdr{display:flex;align-items:center;gap:12px;padding:12px 14px 10px;background:#fff;border-radius:14px;margin-bottom:10px;box-shadow:0 2px 8px rgba(0,0,0,.07)}
+.cab-hdr-banner{width:100%;height:72px;border-radius:12px 12px 0 0;background:linear-gradient(135deg,#1d4ed8,#60a5fa);margin-bottom:0;overflow:hidden}
+.cab-hdr-logo{width:48px;height:48px;border-radius:10px;border:2px solid #e5e7eb;flex-shrink:0;background:#f1f5f9;display:flex;align-items:center;justify-content:center;font-size:22px;overflow:hidden}
+.cab-hdr-logo img{width:48px;height:48px;object-fit:cover;display:block}
+.cab-hdr-name{font-size:15px;font-weight:800;color:#0d1117}
+.cab-hdr-addr{font-size:12px;color:#6b7280;margin-top:2px}
+.cab-hdr-msg{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:9px 13px;font-size:13px;color:#1e40af;margin:0 0 10px;font-style:italic}
+/* ── Dashboard perso ────────────────────────────────────────── */
+.ml-cs{background:#fff;border-radius:16px;padding:18px;margin-bottom:14px;border:1.5px solid var(--border)}
+.ml-cs-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--blue);margin-bottom:14px}
+.ml-cs-field{margin-bottom:11px}
+.ml-cs-field label{display:block;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+.ml-cs-field textarea{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;font-family:inherit;color:var(--navy);background:var(--bg);box-sizing:border-box;resize:vertical}
+.ml-cs-field textarea:focus{border-color:var(--blue);outline:none}
+.ml-cs-drop{border:2px dashed #cbd5e1;border-radius:12px;padding:18px 12px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;min-height:76px;display:flex;align-items:center;justify-content:center;gap:10px;flex-direction:column;background:#f8fafc}
+.ml-cs-drop:hover,.ml-cs-drop.drag-on{border-color:#2563eb;background:#eff6ff}
+.ml-cs-drop span{font-size:12px;color:#64748b;line-height:1.5}
+.ml-cs-logo-prev{width:56px;height:56px;border-radius:10px;object-fit:cover;border:1.5px solid #e5e7eb;display:none}
+.ml-cs-save{width:100%;padding:11px;background:var(--blue);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;margin-top:4px}
+.ml-cs-save:disabled{opacity:.6;cursor:not-allowed}
+.ml-cs-msg{font-size:12px;margin-top:6px;min-height:16px;text-align:center}
 </style>
 <!-- Firebase SDKs (doit charger avant le JS applicatif) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -2207,41 +2230,71 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
       </div>
       <!-- ═══════════════════════════════════════════════════════ -->
 
-      <!-- ══════════ PERSONNALISATION PAGE PATIENT ════════════════ -->
-      <div class="ml-custom-section" id="mlCustomSection">
-        <div class="ml-custom-title">🎨 Page cabinet (vue patient)</div>
 
-        <!-- Logo drag & drop -->
-        <div class="ml-custom-field">
-          <label>Logo du cabinet</label>
-          <div id="mlCustomDropZone" class="ml-custom-dropzone" onclick="document.getElementById('mlCustomFileInput').click()" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="mlCustomHandleDrop(event)">
-            <img id="mlCustomLogoPreview" class="ml-custom-logo-preview" style="display:none" alt="Logo">
-            <div id="mlCustomDropLabel">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M3 9l4-4 4 4 4-4 4 4"/><circle cx="8" cy="14" r="1.5" fill="#94a3b8"/></svg>
-              <span>Glisser une image ici<br><small>ou cliquer pour choisir</small></span>
-            </div>
-            <input type="file" id="mlCustomFileInput" accept="image/*" style="display:none" onchange="mlCustomHandleFile(this.files[0])">
+      <!-- ═══════════ STATISTIQUES CABINET ═══════════════════════ -->
+      <div class="ml-stats-section" id="mlStatsSection">
+        <div class="ml-stats-title">
+          📊 Statistiques du cabinet
+          <button class="ml-stats-toggle" id="mlStatsToggleBtn" onclick="mlStatsToggleDetail()" type="button" style="background:none;border:none;cursor:pointer;font:inherit;color:inherit;padding:0">Voir détails ▾</button>
+        </div>
+        <div class="ml-stats-grid">
+          <div class="ml-stat-card">
+            <div class="ml-stat-card-val" id="mlStatConsultToday">—</div>
+            <div class="ml-stat-card-label">Consultations aujourd'hui</div>
           </div>
-          <input type="hidden" id="mlCustomLogoData">
+          <div class="ml-stat-card">
+            <div class="ml-stat-card-val" id="mlStatAvgWait">—</div>
+            <div class="ml-stat-card-label">Durée moy. consultation</div>
+          </div>
+          <div class="ml-stat-card">
+            <div class="ml-stat-card-val" id="mlStatPeakHour">—</div>
+            <div class="ml-stat-card-label">Heure de pointe</div>
+          </div>
         </div>
-
-        <!-- Couleur -->
-        <div class="ml-custom-field">
-          <label>Couleur d'en-tête</label>
-          <input type="color" id="mlCustomColor" value="#1d4ed8" style="width:60px;height:36px;border-radius:8px;border:1.5px solid var(--border);cursor:pointer;padding:2px">
+        <div id="mlStatsDetail" style="display:none">
+          <div class="ml-chart-wrap">
+            <div class="ml-chart-label">Consultations — 7 derniers jours</div>
+            <div class="ml-bar-chart" id="mlBarChart"></div>
+          </div>
+          <div style="margin-top:14px">
+            <div class="ml-chart-label">Durée moy. par consultation</div>
+            <div id="mlAvgDurText" style="font-size:13px;color:var(--navy);font-weight:700;padding:4px 0">—</div>
+          </div>
+          <div style="margin-top:10px">
+            <div class="ml-chart-label">Total consultations (30 jours)</div>
+            <div id="mlTotal30Text" style="font-size:13px;color:var(--navy);font-weight:700;padding:4px 0">—</div>
+          </div>
         </div>
-
-        <!-- Message -->
-        <div class="ml-custom-field">
-          <label>Message d'accueil patients</label>
-          <textarea id="mlCustomWelcome" rows="3" placeholder="Ex : Bienvenue ! Votre médecin vous reçoit dans les meilleurs délais."></textarea>
-        </div>
-
-        <button class="ml-custom-save-btn" id="mlCustomSaveBtn" onclick="mlCustomSave()">💾 Sauvegarder</button>
-        <div class="ml-custom-msg" id="mlCustomMsg"></div>
       </div>
-      <!-- ═══════════════════════════════════════════════════════════ -->
-
+      <!-- ════════════════════════════════════════════════════════ -->
+      <!-- ══ PERSONNALISATION PAGE CABINET ══════════════════════ -->
+      <div class="ml-cs" id="mlCsSection">
+        <div class="ml-cs-title">🎨 Page cabinet (vue patients)</div>
+        <div class="ml-cs-field">
+          <label>Logo du cabinet</label>
+          <div class="ml-cs-drop" id="mlCsDrop"
+               onclick="document.getElementById('mlCsFile').click()"
+               ondragover="event.preventDefault();this.classList.add('drag-on')"
+               ondragleave="this.classList.remove('drag-on')"
+               ondrop="mlCsDrop(event)">
+            <img id="mlCsLogoPreview" class="ml-cs-logo-prev" alt="Logo">
+            <span id="mlCsDropLabel">📁 Glisser une image ici<br><small style="color:#94a3b8">ou cliquer pour choisir</small></span>
+          </div>
+          <input type="file" id="mlCsFile" accept="image/*" style="display:none" onchange="mlCsFile(this.files[0])">
+          <input type="hidden" id="mlCsLogoData">
+        </div>
+        <div class="ml-cs-field">
+          <label>Couleur d'en-tête</label>
+          <input type="color" id="mlCsColor" value="#1d4ed8" style="width:56px;height:34px;border-radius:8px;border:1.5px solid var(--border);cursor:pointer;padding:2px">
+        </div>
+        <div class="ml-cs-field">
+          <label>Message d'accueil patients</label>
+          <textarea id="mlCsWelcome" rows="3" placeholder="Ex : Bienvenue ! Votre médecin vous reçoit dans les meilleurs délais."></textarea>
+        </div>
+        <button class="ml-cs-save" id="mlCsSaveBtn" onclick="mlCsSave()">💾 Sauvegarder</button>
+        <div class="ml-cs-msg" id="mlCsMsg"></div>
+      </div>
+      <!-- ════════════════════════════════════════════════════════ -->
       <div class="doc-divider"></div>
       <button class="doc-btn doc-btn-ghost" onclick="docLogout()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -2331,13 +2384,10 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
     <!-- CABINET VIEW -->
     <div id="pat-cabinetView" class="pat-screen hidden">
       <div class="pat-back-btn" onclick="patGoBackFromCabinet()">← Retour</div>
-      <!-- En-tête personnalisé du cabinet -->
-      <div id="cabCustomBannerWrap"></div>
-      <!-- Nom/adresse fallback si pas de perso -->
-      <div class="pat-screen-title" id="cabinetName" style="display:none"></div>
-      <div class="pat-screen-sub" id="cabinetAddr" style="display:none"></div>
-      <!-- Message d'accueil personnalisé -->
-      <div id="cabCustomMsgWrap"></div>
+      <div id="cabHdrWrap"></div>
+      <div class="pat-screen-title" id="cabinetName"></div>
+      <div class="pat-screen-sub" id="cabinetAddr"></div>
+      <div id="cabMsgWrap"></div>
       <div class="doc-list" id="docListCabinet"></div>
     </div>
 
@@ -3855,41 +3905,71 @@ function waitForEmailJS(callback, maxWait) {
 }
 
 async function sendEmailResend(to, subject, htmlBody, type) {
-  // Envoi uniquement via Cloudflare Worker /api/send-email → Resend
+  // Envoi via Cloudflare Worker /api/send-email → Resend
+  // EmailJS conservé comme fallback uniquement
+
   let payload = { to, type };
 
   if (type === 'verification' || type === 'otp') {
+    // Extraire le code OTP du sujet "🔒 Code MediLine : 123456"
     const m = String(subject || '').match(/(\d{6})/);
     payload.code = m ? m[1] : '';
     payload.type = 'otp';
   } else if (type === 'reset') {
+    // Extraire le lien du htmlBody
     const m = String(htmlBody || '').match(/href=["']([^"']+)["']/i);
     payload.link = m ? m[1] : String(htmlBody || '');
     payload.type = 'reset';
   } else {
-    return true; // bienvenue / autre → pas bloquant
+    // welcome / other → pas bloquant
+    return true;
   }
 
-  // URL en dur — ML_EMAIL_API_URL déclaré plus bas, const non hoisté
+  // 1. Essayer via le worker Resend (priorité)
+  // Note: URL en dur ici car ML_EMAIL_API_URL est déclaré après cette fonction
+  const _apiUrl = '/api/send-email';
+  console.log('[OTP] Tentative envoi via', _apiUrl, '| type:', payload.type, '| to:', to);
   try {
-    const res = await fetch('/api/send-email', {
+    const res = await fetch(_apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.ok) {
-      console.log('[OTP] Email envoyé — id:', data.id, '| to:', to);
+      console.log('[OTP] Resend OK — id:', data.id, '| to:', to);
       return true;
     }
-    console.error('[OTP] Échec Resend — HTTP', res.status, '| erreur:', data.error || JSON.stringify(data));
-    return false;
+    // Log précis de l'erreur Resend
+    console.error('[OTP] Resend échec — HTTP', res.status, '| erreur:', data.error || JSON.stringify(data));
   } catch(e) {
-    console.error('[OTP] Fetch erreur:', e.message);
+    console.error('[OTP] Worker fetch erreur:', e.message);
+  }
+
+  // 2. Fallback EmailJS
+  if (typeof emailjs === 'undefined') {
+    await new Promise(function(resolve) { waitForEmailJS(resolve, 5000); });
+  }
+  if (!initEmailJS()) return false;
+
+  let templateId = EMAILJS_TEMPLATE_RESET_ID;
+  const params = { email: to };
+  if (type === 'otp' || type === 'verification') {
+    templateId = EMAILJS_TEMPLATE_CODE_ID;
+    params.code = payload.code;
+  } else if (type === 'reset') {
+    templateId = EMAILJS_TEMPLATE_RESET_ID;
+    params.link = payload.link;
+  }
+  try {
+    await emailjs.send(EMAILJS_SERVICE_ID, templateId, params);
+    console.log('[MediLine] EmailJS fallback envoyé:', type, to);
+    return true;
+  } catch(e) {
+    console.error('[MediLine] EmailJS erreur:', e && (e.text || e.status || e));
     return false;
   }
 }
-
 
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -4711,6 +4791,11 @@ function docRemove() {
   } catch {}
   // Réinitialiser le type après consultation terminée
   setConsultType('normale');
+  // Enregistrer la stat au moment exact de la consultation terminée
+  console.log('CONSULTATION_TERMINEE_CLICK', { source: 'docRemove', dur: window.docDuree || 15, cabinetId: mlStatsGetCabinetId ? mlStatsGetCabinetId() : 'N/A' });
+  if (typeof mlStatsRecordConsult === 'function') {
+    mlStatsRecordConsult(window.docDuree || 15);
+  }
   docSave(true); docUpdate(); // true = reset startedAt (action réelle)
   showToast('✅ Consultation terminée');
 }
@@ -5501,8 +5586,7 @@ async function openCabinet(code) {
   document.getElementById('pat-cabinetView').classList.remove('hidden');
   document.getElementById('cabinetName').textContent = cab.name;
   document.getElementById('cabinetAddr').textContent = '📍 ' + cab.adresse;
-  // Appliquer la personnalisation côté patient (module additif)
-  if (typeof mlCustomApplyPatient === 'function') mlCustomApplyPatient(cab);
+  if (typeof mlCsApply === 'function') mlCsApply(cab);
   const list = document.getElementById('docListCabinet');
 
   // ── Résoudre l'UID du propriétaire ──────────────────────────────────────
@@ -6356,6 +6440,13 @@ function namedPatientAction(patId, action) {
       const realMins = Math.round((Date.now() - arrived.getTime()) / 60000);
       if (realMins >= 1 && realMins <= 120) AI.record(realMins);
     }
+  }
+
+  // Enregistrer la stat au moment exact où le patient est marqué passé
+  if (action === 'passed' && typeof mlStatsRecordConsult === 'function') {
+    var _dur = window.docDuree || 15;
+    console.log('CONSULTATION_TERMINEE_CLICK', { source: 'namedPatientAction', patId: patId, dur: _dur, cabinetId: mlStatsGetCabinetId ? mlStatsGetCabinetId() : 'N/A' });
+    mlStatsRecordConsult(_dur);
   }
 
   // Suppression Firebase — le listener on('value') met à jour l'écran sur tous les appareils.
@@ -8233,8 +8324,12 @@ async function dmInitSection() {
   }
 
   dmRenderPlanInfo();
-  // Charger la personnalisation (module additif)
-  setTimeout(function() { if (typeof mlCustomLoad === 'function') mlCustomLoad(); }, 400);
+  setTimeout(function(){ if(typeof mlCsLoad==="function") mlCsLoad(); }, 400);
+
+  // Charger les statistiques (module additif — ne modifie rien d'existant)
+  setTimeout(function() {
+    if (typeof mlStatsRender === 'function') mlStatsRender().catch(function(){});
+  }, 800);
   dmLoadAndRender();
 }
 
@@ -8312,6 +8407,43 @@ async function dmRenderPlanInfo() {
     }
   }
   el.innerHTML = msg + renewBtn;
+
+  // ── Bouton portail Stripe (owners avec abonnement actif uniquement) ──
+  // Additif : ne modifie pas msg ni renewBtn
+  try {
+    var _isOwnerForPortal = !isInvitedDoctor(u, docCurrentUser);
+    var _hasPaidForPortal = u.hasPaid || (u.subscriptionStatus === 'active');
+    // Lire stripeCustomerId depuis userData ou cabinet
+    var _stripeId = u.stripeCustomerId || (_cabData && _cabData.stripeCustomerId) || null;
+    var portalContainer = document.getElementById('mlPortalBtnContainer');
+    if (!portalContainer) {
+      portalContainer = document.createElement('div');
+      portalContainer.id = 'mlPortalBtnContainer';
+      el.parentNode.insertBefore(portalContainer, el.nextSibling);
+    }
+    if (_isOwnerForPortal && _hasPaidForPortal && _stripeId) {
+      // Owner avec abonnement Stripe actif → bouton portail
+      portalContainer.innerHTML =
+        '<button class="ml-portal-btn" id="mlPortalBtn" onclick="mlOpenStripePortal()">'
+        + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>'
+        + ' Gérer mon abonnement'
+        + '</button>';
+    } else if (!_isOwnerForPortal) {
+      // Médecin invité → afficher info abonnement du owner (pas de bouton portail pour lui)
+      var _ownerRef2 = u.billingOwner || u.invitedBy || u.addedBy || null;
+      if (_ownerRef2) {
+        portalContainer.innerHTML =
+          '<div style="font-size:11px;color:var(--muted);margin-top:8px;padding:8px 12px;background:var(--bg);border-radius:9px;border:1px solid var(--border);display:flex;align-items:center;gap:6px">'
+          + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>'
+          + ' Votre accès est inclus dans l\'abonnement du cabinet.'
+          + '</div>';
+      } else {
+        portalContainer.innerHTML = '';
+      }
+    } else {
+      portalContainer.innerHTML = '';
+    }
+  } catch(_pe) {}
   el.className = 'dm-plan-info' + (cls ? ' ' + cls : '');
 
   const addBtn = document.getElementById('dmAddBtn');
@@ -9795,6 +9927,9 @@ function mlKeepAlive() {
       if (action === 'passed') {
         await ref.update({ status:'passed', statut:'passed', passedAt: Date.now(), updatedAt: Date.now() });
         setTimeout(function(){ ref.remove().catch(function(){}); }, 2 * 60 * 1000);
+        // Enregistrer la stat immédiatement
+        console.log('CONSULTATION_TERMINEE_CLICK', { source: 'v8_namedPatientAction', patId: patId, dur: window.docDuree || 15, cabinetId: mlStatsGetCabinetId ? mlStatsGetCabinetId() : 'N/A' });
+        if (typeof mlStatsRecordConsult === 'function') mlStatsRecordConsult(window.docDuree || 15);
         if (typeof showToast === 'function') showToast('✅ Patient marqué passé', 'green');
       } else {
         await ref.remove();
@@ -11603,141 +11738,433 @@ window.checkPromo = function() {
 })();
 
 /* ══════════════════════════════════════════════════════════════════
-   PERSONNALISATION PAGE CABINET — Module v2
-   Logo : base64 drag&drop (pas d'URL externe)
-   Stockage : Firebase cabinets/{uid}/custom
+   STATISTIQUES CABINET — Module v3
+   Stockage : Firebase RTDB  stats/{cabinetId}/daily/{YYYY-MM-DD}
+   Lecture  : onValue temps réel → mise à jour immédiate
    ══════════════════════════════════════════════════════════════════ */
 
-// ── Drag & drop / file input → base64 ────────────────────────────
-function mlCustomHandleDrop(e) {
+// ── Résoudre le cabinetId (owner uid) du médecin connecté ─────────
+function mlStatsGetCabinetId() {
+  var uid = window.docCurrentUser;
+  if (!uid) return null;
+  var lsUsers = JSON.parse(localStorage.getItem('users') || '{}');
+  var u = lsUsers[uid] || window._lastDocData || null;
+  // Invité → utiliser billingOwner/invitedBy/addedBy comme cabinetId
+  if (u) {
+    var owner = u.billingOwner || u.invitedBy || u.addedBy || null;
+    if (owner && owner !== uid) return owner;
+  }
+  return uid; // owner principal = son propre uid
+}
+
+// ── Date du jour YYYY-MM-DD ────────────────────────────────────────
+function mlStatsToday() {
+  var d = new Date();
+  return d.getFullYear() + '-'
+    + String(d.getMonth()+1).padStart(2,'0') + '-'
+    + String(d.getDate()).padStart(2,'0');
+}
+
+// ── Listener temps réel sur les stats du jour ─────────────────────
+var _mlStatsListener = null;
+var _mlStatsRef      = null;
+
+function mlStatsStartListener() {
+  // Détacher l'ancien listener si présent
+  if (_mlStatsRef && _mlStatsListener) {
+    try { _mlStatsRef.off('value', _mlStatsListener); } catch(e) {}
+  }
+  var cabinetId = mlStatsGetCabinetId();
+  if (!cabinetId || !window.firebase) return;
+  var today = mlStatsToday();
+  _mlStatsRef = firebase.database().ref('stats/' + cabinetId + '/daily/' + today);
+  _mlStatsListener = _mlStatsRef.on('value', function(snap) {
+    var data = snap.exists() ? snap.val() : null;
+    mlStatsUpdateUI(data);
+  });
+}
+
+function mlStatsStopListener() {
+  if (_mlStatsRef && _mlStatsListener) {
+    try { _mlStatsRef.off('value', _mlStatsListener); } catch(e) {}
+    _mlStatsRef = null;
+    _mlStatsListener = null;
+  }
+}
+
+// ── Enregistrer une consultation terminée dans Firebase ───────────
+function mlStatsRecordConsult(durationMin) {
+  var uid       = window.docCurrentUser;
+  var cabinetId = mlStatsGetCabinetId();
+  if (!uid || !cabinetId || !window.firebase) return;
+
+  var dur   = Number(durationMin) || (window.docDuree) || 15;
+  var now   = Date.now();
+  var hour  = new Date(now).getHours();
+  var today = mlStatsToday();
+  var path  = 'stats/' + cabinetId + '/daily/' + today;
+  console.log('[STATS] Écriture Firebase → path:', path, '| dur:', dur, '| hour:', hour);
+
+  // Transaction atomique — évite la race condition si 2 consultations simultanées
+  firebase.database().ref(path).transaction(function(current) {
+    if (current === null) {
+      // Première entrée du jour
+      var h0 = {};
+      h0[hour] = 1;
+      return {
+        consultationsToday: 1,
+        totalDuration: dur,
+        hourlyCounts: h0,
+        lastConsultAt: now,
+        cabinetId: cabinetId,
+        date: today
+      };
+    }
+    // Incrémenter l'existant
+    var counts = current.hourlyCounts || {};
+    counts[hour] = (counts[hour] || 0) + 1;
+    return {
+      consultationsToday: (current.consultationsToday || 0) + 1,
+      totalDuration: (current.totalDuration || 0) + dur,
+      hourlyCounts: counts,
+      lastConsultAt: now,
+      cabinetId: cabinetId,
+      date: today
+    };
+  }, function(error, committed, snapshot) {
+    if (error) {
+      console.error('[STATS] ERREUR transaction Firebase:', error.code || error.message || error);
+      // Message d'erreur visible dans la carte stats
+      var elC = document.getElementById('mlStatConsultToday');
+      if (elC) {
+        elC.style.color = '#ef4444';
+        elC.title = 'Erreur: ' + (error.code || error.message || 'inconnu');
+        // Si PERMISSION_DENIED → message explicite
+        if (String(error.code || error.message || '').includes('PERMISSION_DENIED')) {
+          elC.textContent = 'ERR';
+          var section = document.getElementById('mlStatsSection');
+          if (section) {
+            var errDiv = document.getElementById('mlStatsFirebaseError');
+            if (!errDiv) {
+              errDiv = document.createElement('div');
+              errDiv.id = 'mlStatsFirebaseError';
+              errDiv.style.cssText = 'margin-top:8px;padding:8px 12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:11px;color:#dc2626;text-align:center';
+              section.appendChild(errDiv);
+            }
+            errDiv.textContent = '⚠️ Règles Firebase manquantes — ajoutez "stats" dans vos règles Realtime Database.';
+          }
+        }
+      }
+    } else if (committed) {
+      console.log('[STATS] Transaction OK — path:', path, '| dur:', dur, '| total:', snapshot.val() && snapshot.val().consultationsToday);
+    }
+  });
+}
+
+// ── Mettre à jour l'UI avec les données reçues ────────────────────
+function mlStatsUpdateUI(data) {
+  var section = document.getElementById('mlStatsSection');
+  if (!section) return;
+  section.style.display = 'block';
+
+  var count  = data ? (data.consultationsToday || 0) : 0;
+  var totDur = data ? (data.totalDuration || 0)       : 0;
+  var avgDur = count > 0 ? Math.round(totDur / count) : 0;
+  var counts = data ? (data.hourlyCounts || {})       : {};
+
+  // KPI 1 — Consultations aujourd'hui
+  var elCount = document.getElementById('mlStatConsultToday');
+  if (elCount) elCount.textContent = count;
+
+  // KPI 2 — Durée moyenne
+  var elAvg = document.getElementById('mlStatAvgWait');
+  if (elAvg) elAvg.textContent = avgDur > 0 ? avgDur + ' min' : (count > 0 ? '< 1 min' : '—');
+
+  // KPI 3 — Heure de pointe
+  var elPeak = document.getElementById('mlStatPeakHour');
+  if (elPeak) {
+    var peakHour = -1, peakVal = 0;
+    Object.keys(counts).forEach(function(h) {
+      if (counts[h] > peakVal) { peakVal = counts[h]; peakHour = Number(h); }
+    });
+    elPeak.textContent = peakHour >= 0 ? peakHour + 'h–' + (peakHour+1) + 'h' : '—';
+  }
+
+  // Détails — graphique 7 jours + textes
+  mlStatsUpdateDetail(data, count, avgDur, counts);
+}
+
+// ── Mettre à jour la section détails ──────────────────────────────
+function mlStatsUpdateDetail(data, count, avgDur, counts) {
+  // Durée moyenne texte
+  var elAvgTxt = document.getElementById('mlAvgDurText');
+  if (elAvgTxt) {
+    elAvgTxt.textContent = avgDur > 0
+      ? avgDur + ' min en moyenne (' + count + ' consultation' + (count>1?'s':'') + ' aujourd\'hui)'
+      : count > 0 ? count + ' consultation(s) aujourd\'hui' : 'Pas encore de consultations aujourd\'hui';
+  }
+
+  // Total — on affiche le jour actuel
+  var elTotal = document.getElementById('mlTotal30Text');
+  if (elTotal) elTotal.textContent = count + ' consultation' + (count>1?'s':'') + ' aujourd\'hui';
+
+  // Graphique par heure (répartition du jour)
+  var chartEl = document.getElementById('mlBarChart');
+  if (chartEl) {
+    // Afficher les heures 8h–20h
+    var hours = [];
+    for (var h = 8; h <= 20; h++) hours.push(h);
+    var maxC = 1;
+    hours.forEach(function(h) { if ((counts[h]||0) > maxC) maxC = counts[h]||0; });
+    var now_h = new Date().getHours();
+    chartEl.innerHTML = hours.map(function(h) {
+      var c2 = counts[h] || 0;
+      var pct = Math.max(6, Math.round(c2/maxC*100));
+      var cls = h === now_h ? 'today' : (c2 > 0 ? '' : 'low');
+      return '<div class="ml-bar-col">'
+        + '<div class="ml-bar ' + cls + '" style="height:' + pct + '%" title="' + c2 + ' consult.">' + (c2>0?'<span style="display:none">'+c2+'</span>':'') + '</div>'
+        + '<div class="ml-bar-day">' + h + 'h</div>'
+        + '</div>';
+    }).join('');
+  }
+}
+
+// ── Toggle "Voir détails" / "Masquer détails" ─────────────────────
+function mlStatsToggleDetail() {
+  var det = document.getElementById('mlStatsDetail');
+  var btn = document.getElementById('mlStatsToggleBtn');
+  if (!det) { console.error('[STATS] mlStatsDetail introuvable dans le DOM'); return; }
+  var isHidden = det.style.display === '' || det.style.display === 'none';
+  det.style.display = isHidden ? 'block' : 'none';
+  if (btn) btn.textContent = isHidden ? 'Masquer ▴' : 'Voir détails ▾';
+  console.log('[STATS] toggle détails →', isHidden ? 'ouvert' : 'fermé');
+}
+// Alias global garanti (au cas où le onclick HTML ne trouve pas la fonction)
+window.mlStatsToggleDetail  = mlStatsToggleDetail;
+window.toggleStatsDetails   = mlStatsToggleDetail;
+
+// ── Initialisation au chargement du dashboard ─────────────────────
+async function mlStatsRender() {
+  var section = document.getElementById('mlStatsSection');
+  if (!section) return;
+  section.style.display = 'block';
+
+  // Afficher 0 immédiatement (pas —) pendant le chargement
+  var elC = document.getElementById('mlStatConsultToday');
+  var elA = document.getElementById('mlStatAvgWait');
+  var elP = document.getElementById('mlStatPeakHour');
+  if (elC) elC.textContent = '0';
+  if (elA) elA.textContent = '—';
+  if (elP) elP.textContent = '—';
+
+  // Tester l'accès Firebase stats/ avant de démarrer le listener
+  var cabinetId = mlStatsGetCabinetId();
+  var today = mlStatsToday();
+  if (cabinetId && window.firebase) {
+    firebase.database().ref('stats/' + cabinetId + '/daily/' + today)
+      .once('value')
+      .then(function(snap) {
+        // Accès OK — démarrer le listener temps réel
+        mlStatsStartListener();
+        // Afficher données immédiates si existantes
+        if (snap.exists()) mlStatsUpdateUI(snap.val());
+      })
+      .catch(function(e) {
+        var isPermission = String(e.code || e.message || '').includes('PERMISSION_DENIED');
+        console.error('[STATS] Accès Firebase stats/ refusé:', e.code || e.message);
+        // Afficher message d'erreur clair dans la section stats
+        if (elC) { elC.textContent = '—'; elC.style.color = '#ef4444'; }
+        var errDiv = document.getElementById('mlStatsFirebaseError') || document.createElement('div');
+        errDiv.id = 'mlStatsFirebaseError';
+        errDiv.style.cssText = 'margin-top:8px;padding:10px 14px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:12px;color:#dc2626;text-align:left;line-height:1.5';
+        errDiv.innerHTML = isPermission
+          ? '⚠️ <strong>Règles Firebase à mettre à jour.</strong><br>Ajoutez <code>"stats": { ".read": true, ".write": true }</code> dans vos règles Realtime Database.'
+          : '⚠️ Erreur connexion Firebase stats: ' + (e.code || e.message || 'inconnu');
+        if (!errDiv.parentNode) section.appendChild(errDiv);
+      });
+  }
+}
+
+// ── Nettoyer au logout ────────────────────────────────────────────
+(function() {
+  var _origLogout = window.docLogout;
+  if (typeof _origLogout === 'function') {
+    window.docLogout = function() {
+      mlStatsStopListener();
+      return _origLogout.apply(this, arguments);
+    };
+  }
+})();
+
+/* ══════════════════════════════════════════════════════════════════
+   PORTAIL STRIPE — Accès self-service abonnement
+   ══════════════════════════════════════════════════════════════════ */
+
+async function mlOpenStripePortal() {
+  const btn = document.getElementById('mlPortalBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Ouverture…'; }
+
+  try {
+    // Récupérer le stripeCustomerId depuis Firebase (source fiable)
+    let customerId = null;
+    try {
+      const snap = await firebase.database().ref('users/' + docCurrentUser + '/stripeCustomerId').get();
+      if (snap && snap.exists()) customerId = snap.val();
+    } catch(e) {}
+    // Fallback localStorage
+    if (!customerId) {
+      const lc = JSON.parse(localStorage.getItem('users') || '{}');
+      const u = lc[docCurrentUser] || {};
+      customerId = u.stripeCustomerId || null;
+    }
+
+    if (!customerId) {
+      showToast('⚠️ Aucun abonnement Stripe actif trouvé.', 'orange');
+      if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Gérer mon abonnement'; }
+      return;
+    }
+
+    // Appeler le worker /api/stripe-portal
+    const res = await fetch('/api/stripe-portal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customerId,
+        returnUrl: location.href
+      })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.url) {
+      console.error('[PORTAL] Erreur:', data.error);
+      showToast('❌ ' + (data.error || 'Impossible d\'ouvrir le portail.'), 'red');
+      if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Gérer mon abonnement'; }
+      return;
+    }
+
+    // Ouvrir le portail Stripe dans un nouvel onglet
+    window.open(data.url, '_blank');
+    if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Gérer mon abonnement'; }
+
+  } catch(e) {
+    console.error('[PORTAL] Erreur réseau:', e);
+    showToast('❌ Erreur de connexion au portail.', 'red');
+    if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Gérer mon abonnement'; }
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   PERSONNALISATION PAGE CABINET
+   ═══════════════════════════════════════════════════════════════ */
+
+function mlCsDrop(e) {
   e.preventDefault();
-  document.getElementById('mlCustomDropZone').classList.remove('drag-over');
-  var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-  if (file) mlCustomHandleFile(file);
+  document.getElementById('mlCsDrop').classList.remove('drag-on');
+  var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) mlCsFile(f);
 }
 
-function mlCustomHandleFile(file) {
+function mlCsFile(file) {
   if (!file || !file.type.startsWith('image/')) return;
-  var reader = new FileReader();
-  reader.onload = function(ev) {
-    var b64 = ev.target.result; // data:image/xxx;base64,...
-    document.getElementById('mlCustomLogoData').value = b64;
-    var preview = document.getElementById('mlCustomLogoPreview');
-    var label   = document.getElementById('mlCustomDropLabel');
-    if (preview) { preview.src = b64; preview.style.display = 'block'; }
-    if (label)   { label.style.display = 'none'; }
+  var r = new FileReader();
+  r.onload = function(ev) {
+    var b64 = ev.target.result;
+    document.getElementById('mlCsLogoData').value = b64;
+    var prev = document.getElementById('mlCsLogoPreview');
+    var lbl  = document.getElementById('mlCsDropLabel');
+    if (prev) { prev.src = b64; prev.style.display = 'block'; }
+    if (lbl)  { lbl.style.display = 'none'; }
   };
-  reader.readAsDataURL(file);
+  r.readAsDataURL(file);
 }
 
-// ── Charger perso au login ────────────────────────────────────────
-async function mlCustomLoad() {
-  var uid = window.docCurrentUser || window._lastDocData && window._lastDocData.uid;
+async function mlCsLoad() {
+  var uid = window.docCurrentUser || localStorage.getItem('ml_session');
   if (!uid) return;
   try {
     var snap = await firebase.database().ref('cabinets/' + uid + '/custom').get();
-    var data = snap && snap.exists() ? snap.val() : {};
-    if (data.logoData) {
-      var preview = document.getElementById('mlCustomLogoPreview');
-      var label   = document.getElementById('mlCustomDropLabel');
-      var hidden  = document.getElementById('mlCustomLogoData');
-      if (preview) { preview.src = data.logoData; preview.style.display = 'block'; }
-      if (label)   { label.style.display = 'none'; }
-      if (hidden)  { hidden.value = data.logoData; }
+    var d = snap && snap.exists() ? snap.val() : {};
+    if (d.logoData) {
+      var prev = document.getElementById('mlCsLogoPreview');
+      var lbl  = document.getElementById('mlCsDropLabel');
+      var hid  = document.getElementById('mlCsLogoData');
+      if (prev) { prev.src = d.logoData; prev.style.display = 'block'; }
+      if (lbl)  { lbl.style.display = 'none'; }
+      if (hid)  { hid.value = d.logoData; }
     }
-    var colorEl   = document.getElementById('mlCustomColor');
-    var welcomeEl = document.getElementById('mlCustomWelcome');
-    if (colorEl && data.color)    { colorEl.value = data.color; }
-    if (welcomeEl && data.welcome) { welcomeEl.value = data.welcome; }
-  } catch(e) { console.warn('[CUSTOM] load erreur:', e); }
+    var col = document.getElementById('mlCsColor');
+    var wel = document.getElementById('mlCsWelcome');
+    if (col && d.color)   col.value = d.color;
+    if (wel && d.welcome) wel.value = d.welcome;
+  } catch(e) { console.warn('[CS] load:', e); }
 }
 
-// ── Sauvegarder ────────────────────────────────────────────────────
-async function mlCustomSave() {
-  // Récupérer uid avec tous les fallbacks possibles
-  var uid = window.docCurrentUser
-    || (window._lastDocData && window._lastDocData.uid)
-    || localStorage.getItem('ml_session');
-
-  var msgEl = document.getElementById('mlCustomMsg');
-  var btn   = document.getElementById('mlCustomSaveBtn');
-
-  if (!uid) {
-    if (msgEl) { msgEl.textContent = '❌ Session expirée. Reconnectez-vous.'; msgEl.style.color = '#ef4444'; }
-    return;
-  }
-
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Sauvegarde…'; }
-  if (msgEl) { msgEl.textContent = ''; }
-
-  var logoData  = (document.getElementById('mlCustomLogoData')  || {}).value || '';
-  var color     = (document.getElementById('mlCustomColor')     || {}).value || '#1d4ed8';
-  var welcome   = (document.getElementById('mlCustomWelcome')   || {}).value || '';
-
-  var data = { color: color, welcome: welcome };
-  if (logoData) data.logoData = logoData;
-
-  console.log('[CUSTOM] Save uid:', uid, '| color:', color, '| hasLogo:', !!logoData);
-
+async function mlCsSave() {
+  var uid = window.docCurrentUser || localStorage.getItem('ml_session');
+  var msg = document.getElementById('mlCsMsg');
+  var btn = document.getElementById('mlCsSaveBtn');
+  if (!uid) { if(msg){msg.textContent='❌ Session expirée';msg.style.color='#ef4444';} return; }
+  if (btn) { btn.disabled=true; btn.textContent='⏳ Sauvegarde…'; }
+  if (msg) { msg.textContent=''; }
+  var data = {
+    color:   (document.getElementById('mlCsColor')   ||{}).value || '#1d4ed8',
+    welcome: (document.getElementById('mlCsWelcome') ||{}).value || ''
+  };
+  var logo = (document.getElementById('mlCsLogoData')||{}).value || '';
+  if (logo) data.logoData = logo;
+  console.log('[CS] Save uid:', uid, '| color:', data.color, '| logo:', !!logo);
   try {
     await firebase.database().ref('cabinets/' + uid + '/custom').set(data);
-    if (msgEl) { msgEl.textContent = '✅ Sauvegardé !'; msgEl.style.color = '#059669'; }
-    console.log('[CUSTOM] OK');
+    if (msg) { msg.textContent='✅ Sauvegardé !'; msg.style.color='#059669'; }
   } catch(e) {
-    console.error('[CUSTOM] Erreur:', e.code || e.message || e);
-    if (msgEl) { msgEl.textContent = '❌ ' + (e.message || 'Erreur Firebase'); msgEl.style.color = '#ef4444'; }
+    console.error('[CS] erreur:', e.code||e.message||e);
+    if (msg) { msg.textContent='❌ '+(e.message||'Erreur Firebase'); msg.style.color='#ef4444'; }
   }
-
-  if (btn) { btn.disabled = false; btn.textContent = '💾 Sauvegarder'; }
-  setTimeout(function() { if (msgEl) msgEl.textContent = ''; }, 3000);
+  if (btn) { btn.disabled=false; btn.textContent='💾 Sauvegarder'; }
+  setTimeout(function(){ if(msg) msg.textContent=''; }, 3000);
 }
 
-// ── Appliquer côté PATIENT ────────────────────────────────────────
-function mlCustomApplyPatient(cabData) {
-  var custom     = (cabData && cabData.custom) ? cabData.custom : {};
-  var bannerWrap = document.getElementById('cabCustomBannerWrap');
-  var msgWrap    = document.getElementById('cabCustomMsgWrap');
-  var nameEl     = document.getElementById('cabinetName');
-  var addrEl     = document.getElementById('cabinetAddr');
+function mlCsApply(cabData) {
+  var custom = (cabData && cabData.custom) ? cabData.custom : {};
+  var hdrWrap = document.getElementById('cabHdrWrap');
+  var msgWrap = document.getElementById('cabMsgWrap');
+  var nameEl  = document.getElementById('cabinetName');
+  var addrEl  = document.getElementById('cabinetAddr');
+  var color   = custom.color   || '#1d4ed8';
+  var logo    = custom.logoData|| '';
+  var welcome = custom.welcome || '';
+  var name    = (cabData && cabData.name)    || '';
+  var addr    = (cabData && cabData.adresse) || '';
 
-  var color   = custom.color    || '#1d4ed8';
-  var logoSrc = custom.logoData || '';
-  var welcome = custom.welcome  || '';
-  var name    = cabData.name    || '';
-  var addr    = cabData.adresse || '';
-
-  if (bannerWrap) {
-    var logoHtml = logoSrc
-      ? '<img src="' + logoSrc.replace(/"/g, '') + '" style="width:52px;height:52px;border-radius:10px;object-fit:cover;border:2px solid #e5e7eb" alt="Logo">'
-      : '<span style="font-size:26px">🏥</span>';
-    bannerWrap.innerHTML =
-      '<div style="width:100%;height:80px;border-radius:14px 14px 0 0;background:linear-gradient(135deg,' + color + ',' + mlCustomLighten(color) + ')"></div>'
-      + '<div class="cab-custom-header">'
-      +   '<div class="cab-custom-logo">' + logoHtml + '</div>'
-      +   '<div>'
-      +     '<div class="cab-custom-name">' + mlEsc(name) + '</div>'
-      +     '<div class="cab-custom-addr">📍 ' + mlEsc(addr) + '</div>'
-      +   '</div>'
-      + '</div>';
+  function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function lighten(h){
+    try{var r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);
+      r=Math.min(255,r+55);g=Math.min(255,g+55);b=Math.min(255,b+55);
+      return '#'+[r,g,b].map(function(v){return v.toString(16).padStart(2,'0');}).join('');}
+    catch(e){return '#60a5fa';}
   }
-  if (nameEl) nameEl.style.display = 'none';
-  if (addrEl) addrEl.style.display = 'none';
+
+  if (hdrWrap) {
+    var logoHtml = logo
+      ? '<img src="'+logo.replace(/"/g,'')+'" style="width:48px;height:48px;border-radius:10px;object-fit:cover" alt="Logo">'
+      : '<span style="font-size:22px">🏥</span>';
+    hdrWrap.innerHTML =
+      '<div class="cab-hdr-banner" style="background:linear-gradient(135deg,'+color+','+lighten(color)+')"></div>'
+      +'<div class="cab-hdr">'
+      +  '<div class="cab-hdr-logo">'+logoHtml+'</div>'
+      +  '<div>'
+      +    '<div class="cab-hdr-name">'+esc(name)+'</div>'
+      +    '<div class="cab-hdr-addr">📍 '+esc(addr)+'</div>'
+      +  '</div>'
+      +'</div>';
+    if (nameEl) nameEl.style.display = 'none';
+    if (addrEl) addrEl.style.display = 'none';
+  }
   if (msgWrap) {
-    msgWrap.innerHTML = welcome
-      ? '<div class="cab-custom-msg">💬 ' + mlEsc(welcome) + '</div>'
-      : '';
+    msgWrap.innerHTML = welcome ? '<div class="cab-hdr-msg">💬 '+esc(welcome)+'</div>' : '';
   }
-}
-
-function mlCustomLighten(hex) {
-  try {
-    var r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
-    r=Math.min(255,r+60); g=Math.min(255,g+60); b=Math.min(255,b+60);
-    return '#'+[r,g,b].map(function(v){return v.toString(16).padStart(2,'0');}).join('');
-  } catch(e) { return '#60a5fa'; }
-}
-function mlEsc(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 </script>
