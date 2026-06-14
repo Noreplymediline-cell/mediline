@@ -11788,24 +11788,31 @@ function mlStShow(data) {
 
 async function mlStLoad() {
   var owner = mlStOwner();
-  if (!owner || !window.firebase) return;
-  var path = 'cabinets/'+owner+'/stats/'+mlStDate();
+  var e3 = document.getElementById('mlSt3');
+
+  // Diagnostic visible : afficher l'uid dans la carte heure pointe
+  if (!owner) {
+    if (e3) e3.textContent = 'no uid';
+    return;
+  }
+  if (!window.firebase) {
+    if (e3) e3.textContent = 'no fb';
+    return;
+  }
+
+  var path = 'cabinets/' + owner + '/stats/' + mlStDate();
+  if (e3) e3.textContent = owner.slice(-6); // 6 derniers chars de l'uid
+
   try {
     var snap = await firebase.database().ref(path).once('value');
     var data = snap && snap.exists() ? snap.val() : null;
-    // Fusionner avec localStorage si Firebase vide
-    if (!data || !data.c) {
-      var key = 'ml_st_local_' + mlStDate();
-      var local = JSON.parse(localStorage.getItem(key) || 'null');
-      if (local && local.c > 0) data = local;
-    }
+    // localStorage fallback
+    var lkey = 'mlst_' + mlStDate();
+    var local = JSON.parse(localStorage.getItem(lkey) || 'null');
+    if (!data && local && local.c > 0) data = local;
     mlStShow(data);
   } catch(e) {
-    console.warn('[ST]', e.message);
-    // Afficher depuis localStorage
-    var key2 = 'ml_st_local_' + mlStDate();
-    var local2 = JSON.parse(localStorage.getItem(key2) || 'null');
-    mlStShow(local2);
+    if (e3) e3.textContent = (e.code || e.message || 'err').slice(0,10);
   }
 }
 
