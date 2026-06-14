@@ -2319,6 +2319,15 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
     await firebase.database().ref('cabinets/'+uid+'/custom').set(data);
     if(msg){msg.textContent='✅ Sauvegardé!';msg.style.color='#059669';}
     setTimeout(function(){if(msg)msg.textContent='';},3000);
+    // Réappliquer sur la page patient si elle est visible
+    try{
+      var cabView=document.getElementById('pat-cabinetView');
+      if(cabView&&!cabView.classList.contains('hidden')){
+        var cabs=JSON.parse(localStorage.getItem('cabinets')||'{}');
+        var ownerCab=cabs[uid];
+        if(ownerCab) mlCsApply(Object.assign({},ownerCab,{custom:data}));
+      }
+    }catch(_e){}
   }catch(e){
     if(msg){msg.textContent='❌ '+(e.message||'Erreur');msg.style.color='#ef4444';}
   }
@@ -12165,6 +12174,18 @@ window.mlCsSave      = function(){ mlCsSave(); };
 
 function mlCsApply(cabData) {
   var custom = (cabData && cabData.custom) ? cabData.custom : {};
+  // Si custom vide, charger depuis Firebase en async et réappliquer
+  if (!custom.color && !custom.logoData && !custom.welcome) {
+    var cabId = cabData && (cabData.cabinetId || cabData.ownerUid || cabData.code || cabData.publicCode);
+    if (cabId && window.firebase) {
+      firebase.database().ref('cabinets/' + cabId + '/custom').get().then(function(snap) {
+        if (snap && snap.exists() && snap.val()) {
+          mlCsApply(Object.assign({}, cabData, { custom: snap.val() }));
+        }
+      }).catch(function(){});
+    }
+    return; // sortir — sera rappelé avec les données
+  }
   var hdrWrap = document.getElementById('cabHdrWrap');
   var msgWrap = document.getElementById('cabMsgWrap');
   var nameEl  = document.getElementById('cabinetName');
