@@ -2273,14 +2273,14 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
         <div class="ml-cs-field">
           <label>Logo du cabinet</label>
           <div class="ml-cs-drop" id="mlCsDrop"
-               onclick="document.getElementById('mlCsFile').click()"
+               onclick="document.getElementById('mlCsFileInput').click()"
                ondragover="event.preventDefault();this.classList.add('drag-on')"
                ondragleave="this.classList.remove('drag-on')"
                ondrop="mlCsDrop(event)">
             <img id="mlCsLogoPreview" class="ml-cs-logo-prev" alt="Logo">
             <span id="mlCsDropLabel">📁 Glisser une image ici<br><small style="color:#94a3b8">ou cliquer pour choisir</small></span>
           </div>
-          <input type="file" id="mlCsFile" accept="image/*" style="display:none" onchange="mlCsFile(this.files[0])">
+          <input type="file" id="mlCsFileInput" accept="image/*" style="display:none" onchange="mlCsHandleFile(this.files[0])">
           <input type="hidden" id="mlCsLogoData">
         </div>
         <div class="ml-cs-field">
@@ -12063,10 +12063,10 @@ function mlCsDrop(e) {
   e.preventDefault();
   document.getElementById('mlCsDrop').classList.remove('drag-on');
   var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-  if (f) mlCsFile(f);
+  if (f) mlCsHandleFile(f);
 }
 
-function mlCsFile(file) {
+function mlCsHandleFile(file) {
   if (!file || !file.type.startsWith('image/')) return;
   var r = new FileReader();
   r.onload = function(ev) {
@@ -12125,6 +12125,11 @@ async function mlCsSave() {
   if (btn) { btn.disabled=false; btn.textContent='💾 Sauvegarder'; }
   setTimeout(function(){ if(msg) msg.textContent=''; }, 3000);
 }
+
+// Exposer en window pour les onclick HTML
+window.mlCsDrop      = function(e){ mlCsDrop(e); };
+window.mlCsHandleFile= function(f){ mlCsHandleFile(f); };
+window.mlCsSave      = function(){ mlCsSave(); };
 
 function mlCsApply(cabData) {
   var custom = (cabData && cabData.custom) ? cabData.custom : {};
