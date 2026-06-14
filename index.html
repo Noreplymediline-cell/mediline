@@ -8915,23 +8915,11 @@ function buildInviteHtml(name, email, cabinetCode, inviteLink) {
 
 
 <script>
-// Service Worker
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function() {
     navigator.serviceWorker.register('/sw.js').catch(function(){});
   });
 }
-// Mode standalone : afficher directement la page login
-(function() {
-  var standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
-  if (!standalone) return;
-  document.addEventListener('DOMContentLoaded', function() {
-    var landing = document.getElementById('page-landing');
-    var doctor  = document.getElementById('page-doctor');
-    if (landing) { landing.classList.remove('active'); }
-    if (doctor && !document.querySelector('.page.active')) { doctor.classList.add('active'); }
-  });
-})();
 </script>
 </body></html>`;
 }
