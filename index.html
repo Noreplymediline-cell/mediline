@@ -11830,25 +11830,34 @@ function mlStRecord(durMin) {
 
   console.log('[ST] Record:', { owner: owner, dur: dur, h: h, path: path });
 
+  // Afficher "..." pendant le chargement
+  var _e1 = document.getElementById('mlSt1');
+  if (_e1 && _e1.textContent === '—') _e1.textContent = '...';
+
   ref.update(update)
     .then(function() {
-      console.log('[ST] OK');
       mlStLoad();
     })
-    .catch(function(e) {
-      console.error('[ST] Erreur Firebase:', e.code || e.message);
-      // Fallback local si Firebase refuse
+    .catch(function(err) {
+      var errMsg = err && (err.code || err.message) || 'inconnu';
+      // Afficher l'erreur dans la carte stats
+      var e1 = document.getElementById('mlSt1');
+      var e2 = document.getElementById('mlSt2');
+      var e3 = document.getElementById('mlSt3');
+      if (e1) { e1.textContent = 'ERR'; e1.title = errMsg; e1.style.fontSize='12px'; e1.style.color='#ef4444'; }
+      if (e2) { e2.textContent = errMsg.slice(0,15); e2.style.fontSize='10px'; e2.style.color='#ef4444'; }
+      if (e3) { e3.textContent = path; e3.style.fontSize='8px'; e3.style.color='#94a3b8'; }
+      // Fallback localStorage
       try {
         var key = 'ml_st_local_' + mlStDate();
         var local = JSON.parse(localStorage.getItem(key) || '{"c":0,"d":0}');
-        local.c += 1;
-        local.d += dur;
+        local.c += 1; local.d += dur;
         localStorage.setItem(key, JSON.stringify(local));
-        // Afficher depuis localStorage
-        var e1 = document.getElementById('mlSt1');
-        var e2 = document.getElementById('mlSt2');
-        if (e1) e1.textContent = local.c;
-        if (e2) e2.textContent = local.c > 0 ? Math.round(local.d/local.c)+' min' : '—';
+        setTimeout(function() {
+          if (e1) { e1.textContent = local.c; e1.style.fontSize=''; e1.style.color=''; }
+          if (e2) { e2.textContent = local.c > 0 ? Math.round(local.d/local.c)+' min' : '—'; e2.style.fontSize=''; e2.style.color=''; }
+          if (e3) { e3.textContent = '—'; e3.style.fontSize=''; e3.style.color=''; }
+        }, 3000);
       } catch(_) {}
     });
 }
