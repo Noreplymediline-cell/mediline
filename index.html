@@ -5626,24 +5626,20 @@ async function openCabinet(code) {
   document.getElementById('cabinetName').textContent = cab.name;
   document.getElementById('cabinetAddr').textContent = '📍 ' + cab.adresse;
 
-  // Appliquer la perso : custom peut être dans cab directement (chargé avec cabSnap)
-  // ou à charger séparément si le code != ownerUid
+  // Appliquer la perso — toujours charger custom depuis Firebase
+  // car cab peut venir du cache localStorage sans le nœud custom
   if (typeof mlCsApply === 'function') {
-    if (cab.custom) {
-      // Custom déjà dans l'objet cab → appliquer directement
-      mlCsApply(cab);
-    } else {
-      // Charger custom depuis l'ownerUid (peut différer du code public)
-      var _ownerUid = cab.ownerUid || cab.cabinetId || code;
-      firebase.database().ref('cabinets/' + _ownerUid + '/custom').get()
-        .then(function(snap) {
-          if (snap && snap.exists()) {
-            cab.custom = snap.val();
-          }
-          mlCsApply(cab);
-        })
-        .catch(function() { mlCsApply(cab); });
-    }
+    var _csUid = cab.ownerUid || cab.cabinetId || code;
+    firebase.database().ref('cabinets/' + _csUid + '/custom').get()
+      .then(function(snap) {
+        cab.custom = (snap && snap.exists()) ? snap.val() : {};
+        console.log('[PERSO] custom chargé pour', _csUid, ':', JSON.stringify(cab.custom).slice(0,80));
+        mlCsApply(cab);
+      })
+      .catch(function(e) {
+        console.warn('[PERSO] erreur chargement custom:', e);
+        mlCsApply(cab);
+      });
   }
   const list = document.getElementById('docListCabinet');
 
@@ -12213,8 +12209,7 @@ function mlCsApply(cabData) {
   var nameEl  = document.getElementById('cabinetName');
   var addrEl  = document.getElementById('cabinetAddr');
 
-  // Si pas de perso du tout → garder l'affichage par défaut
-  if (!color && !logo && !welcome) return;
+  // Toujours afficher le header (même sans perso, affiche nom + adresse proprement)
 
   // ── Bannière + header ──────────────────────────────────────────
   if (hdrWrap) {
