@@ -3,6 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#1d4ed8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="MediLine">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <title>MediLine — La salle d'attente intelligente</title>
 <meta name="description" content="MediLine affiche le temps d'attente de votre cabinet en temps réel. Zéro application patient. Opérationnel en 2 minutes.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -8907,6 +8914,25 @@ function buildInviteHtml(name, email, cabinetCode, inviteLink) {
 
 
 
+<script>
+// Service Worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('/sw.js').catch(function(){});
+  });
+}
+// Mode standalone : afficher directement la page login
+(function() {
+  var standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  if (!standalone) return;
+  document.addEventListener('DOMContentLoaded', function() {
+    var landing = document.getElementById('page-landing');
+    var doctor  = document.getElementById('page-doctor');
+    if (landing) { landing.classList.remove('active'); }
+    if (doctor && !document.querySelector('.page.active')) { doctor.classList.add('active'); }
+  });
+})();
+</script>
 </body></html>`;
 }
 
