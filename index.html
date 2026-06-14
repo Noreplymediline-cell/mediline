@@ -8910,100 +8910,6 @@ function buildInviteHtml(name, email, cabinetCode, inviteLink) {
 
 
 
-
-<script id="mlStatsModule">
-/* STATS — module indépendant */
-(function() {
-
-  function stDate() {
-    var d = new Date();
-    return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);
-  }
-
-  function stShow(data) {
-    var box = document.getElementById('mlStatsBox');
-    if (box) box.style.display = 'block';
-    var count = data ? (data.c || 0) : 0;
-    var totDur = data ? (data.d || 0) : 0;
-    var hours  = data ? (data.h || {}) : {};
-    var avg = count > 0 ? Math.round(totDur / count) : 0;
-    var peakH = -1, peakV = 0;
-    Object.keys(hours).forEach(function(h) {
-      if (Number(hours[h]) > peakV) { peakV = Number(hours[h]); peakH = Number(h); }
-    });
-    var e1 = document.getElementById('mlSt1');
-    var e2 = document.getElementById('mlSt2');
-    var e3 = document.getElementById('mlSt3');
-    if (e1) e1.textContent = count;
-    if (e2) e2.textContent = avg > 0 ? avg + ' min' : (count > 0 ? '< 1min' : '—');
-    if (e3) e3.textContent = peakH >= 0 ? peakH + 'h' : '—';
-  }
-
-  function stKey() { return 'mlst_' + stDate(); }
-
-  function stLoad() {
-    // 1. Afficher localStorage immédiatement
-    var local = null;
-    try { local = JSON.parse(localStorage.getItem(stKey()) || 'null'); } catch(e) {}
-    stShow(local);
-
-    // 2. Charger Firebase en arrière-plan
-    var uid = window.docCurrentUser;
-    if (!uid || !window.firebase) return;
-    var path = 'cabinets/' + uid + '/stats/' + stDate();
-    firebase.database().ref(path).once('value')
-      .then(function(snap) {
-        if (snap && snap.exists()) stShow(snap.val());
-      })
-      .catch(function() {});
-  }
-
-  function stRecord(durMin) {
-    var dur = Math.max(1, Number(durMin) || 15);
-    var h   = String(new Date().getHours());
-
-    // localStorage immédiat
-    var data = null;
-    try { data = JSON.parse(localStorage.getItem(stKey()) || 'null'); } catch(e) {}
-    data = data || { c: 0, d: 0, h: {} };
-    data.c += 1;
-    data.d += dur;
-    data.h[h] = (data.h[h] || 0) + 1;
-    try { localStorage.setItem(stKey(), JSON.stringify(data)); } catch(e) {}
-    stShow(data);
-
-    // Firebase en arrière-plan
-    var uid = window.docCurrentUser;
-    if (!uid || !window.firebase) return;
-    var path = 'cabinets/' + uid + '/stats/' + stDate();
-    var INC = window.firebase.database.ServerValue &&
-              window.firebase.database.ServerValue.increment;
-    if (!INC) return;
-    var upd = { date: stDate() };
-    upd['c']     = INC(1);
-    upd['d']     = INC(dur);
-    upd['h/'+h]  = INC(1);
-    firebase.database().ref(path).update(upd).catch(function() {});
-  }
-
-  // Exposer globalement
-  window.mlStLoad   = stLoad;
-  window.mlStRecord = stRecord;
-
-  // Auto-lancement quand docCurrentUser est disponible
-  var _tries = 0;
-  function tryLoad() {
-    if (window.docCurrentUser) { stLoad(); return; }
-    if (_tries++ < 20) setTimeout(tryLoad, 500);
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function() { setTimeout(tryLoad, 1000); });
-  } else {
-    setTimeout(tryLoad, 1000);
-  }
-
-})();
-</script>
 </body></html>`;
 }
 
@@ -11839,6 +11745,110 @@ window.checkPromo = function() {
 
 
 
+/* ═══════════════════════════════════════════════════
+   STATS CABINET — lecture simple, chemin cabinets/
+   Pas de listener temps réel, juste une lecture
+   ═══════════════════════════════════════════════════ */
+
+function mlStDate() {
+  var d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+function mlStOwner() {
+  var uid = window.docCurrentUser;
+  if (!uid) return null;
+  try {
+    var u = (JSON.parse(localStorage.getItem('users')||'{}'))[uid] || window._lastDocData || {};
+    var o = u.billingOwner || u.invitedBy || u.addedBy || null;
+    if (o && o !== uid) return o;
+  } catch(e) {}
+  return uid;
+}
+
+function mlStShow(data) {
+  var box = document.getElementById('mlStatsBox');
+  if (!box) return;
+  box.style.display = 'block';
+  var count = data ? (data.c || 0) : 0;
+  var totDur = data ? (data.d || 0) : 0;
+  var hours  = data ? (data.h || {}) : {};
+  var avg    = count > 0 ? Math.round(totDur/count) : 0;
+  var peakH  = -1, peakV = 0;
+  Object.keys(hours).forEach(function(h){
+    if (Number(hours[h]) > peakV) { peakV = Number(hours[h]); peakH = Number(h); }
+  });
+  var e1 = document.getElementById('mlSt1');
+  var e2 = document.getElementById('mlSt2');
+  var e3 = document.getElementById('mlSt3');
+  if (e1) e1.textContent = count;
+  if (e2) e2.textContent = avg > 0 ? avg+' min' : '—';
+  if (e3) e3.textContent = peakH >= 0 ? peakH+'h' : '—';
+}
+
+async function mlStLoad() {
+  var owner = mlStOwner();
+  var e3 = document.getElementById('mlSt3');
+
+  // Diagnostic visible : afficher l'uid dans la carte heure pointe
+  if (!owner) {
+    if (e3) e3.textContent = 'no uid';
+    return;
+  }
+  if (!window.firebase) {
+    if (e3) e3.textContent = 'no fb';
+    return;
+  }
+
+  var path = 'cabinets/' + owner + '/stats/' + mlStDate();
+  if (e3) e3.textContent = owner.slice(-6); // 6 derniers chars de l'uid
+
+  try {
+    var snap = await firebase.database().ref(path).once('value');
+    var data = snap && snap.exists() ? snap.val() : null;
+    // localStorage fallback
+    var lkey = 'mlst_' + mlStDate();
+    var local = JSON.parse(localStorage.getItem(lkey) || 'null');
+    if (!data && local && local.c > 0) data = local;
+    mlStShow(data);
+  } catch(e) {
+    if (e3) e3.textContent = (e.code || e.message || 'err').slice(0,10);
+  }
+}
+
+function mlStRecord(durMin) {
+  var dur = Math.max(1, Number(durMin) || 15);
+  var today = mlStDate();
+  var key = 'mlst_' + today;
+
+  // 1. Mettre à jour localStorage immédiatement
+  var local = JSON.parse(localStorage.getItem(key) || '{"c":0,"d":0,"h":{}}');
+  local.c += 1;
+  local.d += dur;
+  var h = String(new Date().getHours());
+  local.h[h] = (local.h[h] || 0) + 1;
+  localStorage.setItem(key, JSON.stringify(local));
+
+  // 2. Afficher immédiatement depuis localStorage
+  mlStShow(local);
+
+  // 3. Tenter Firebase en arrière-plan
+  var owner = mlStOwner();
+  if (owner && window.firebase) {
+    var path = 'cabinets/' + owner + '/stats/' + today;
+    var INC = (firebase.database.ServerValue && firebase.database.ServerValue.increment)
+      ? firebase.database.ServerValue.increment : null;
+    if (INC) {
+      var upd = {};
+      upd['c'] = INC(1); upd['d'] = INC(dur);
+      upd['h/' + h] = INC(1); upd['date'] = today;
+      firebase.database().ref(path).update(upd).catch(function(){});
+    }
+  }
+}
+
+window.mlStLoad   = mlStLoad;
+window.mlStRecord = mlStRecord;
 
 </script>
 
