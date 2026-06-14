@@ -11855,465 +11855,12 @@ window.checkPromo = function() {
 
 })();
 
-/* ══════════════════════════════════════════════════════════════════
-   STATISTIQUES CABINET — Module v3
-   Stockage : Firebase RTDB  stats/{cabinetId}/daily/{YYYY-MM-DD}
-   Lecture  : onValue temps réel → mise à jour immédiate
-   ══════════════════════════════════════════════════════════════════ */
-
-// ── Résoudre le cabinetId (owner uid) du médecin connecté ─────────
-function mlStatsGetCabinetId() {
-  var uid = window.docCurrentUser;
-  if (!uid) return null;
-  var lsUsers = JSON.parse(localStorage.getItem('users') || '{}');
-  var u = lsUsers[uid] || window._lastDocData || null;
-  // Invité → utiliser billingOwner/invitedBy/addedBy comme cabinetId
-  if (u) {
-    var owner = u.billingOwner || u.invitedBy || u.addedBy || null;
-    if (owner && owner !== uid) return owner;
-  }
-  return uid; // owner principal = son propre uid
-}
-
-// ── Date du jour YYYY-MM-DD ────────────────────────────────────────
-function mlStatsToday() {
-  var d = new Date();
-  return d.getFullYear() + '-'
-    + String(d.getMonth()+1).padStart(2,'0') + '-'
-    + String(d.getDate()).padStart(2,'0');
-}
-
-// ── Listener temps réel sur les stats du jour ─────────────────────
-var _mlStatsListener = null;
-var _mlStatsRef      = null;
-
-function mlStatsStartListener() {
-  // Détacher l'ancien listener si présent
-  if (_mlStatsRef && _mlStatsListener) {
-    try { _mlStatsRef.off('value', _mlStatsListener); } catch(e) {}
-  }
-  var cabinetId = mlStatsGetCabinetId();
-  if (!cabinetId || !window.firebase) return;
-  var today = mlStatsToday();
-  _mlStatsRef = firebase.database().ref('stats/' + cabinetId + '/daily/' + today);
-  _mlStatsListener = _mlStatsRef.on('value', function(snap) {
-    var data = snap.exists() ? snap.val() : null;
-    mlStatsUpdateUI(data);
-  });
-}
-
-function mlStatsStopListener() {
-  if (_mlStatsRef && _mlStatsListener) {
-    try { _mlStatsRef.off('value', _mlStatsListener); } catch(e) {}
-    _mlStatsRef = null;
-    _mlStatsListener = null;
-  }
-}
-
-// ── Enregistrer une consultation terminée dans Firebase ───────────
-function mlStatsRecordConsult(durationMin) {
-  var uid       = window.docCurrentUser;
-  var cabinetId = mlStatsGetCabinetId();
-  if (!uid || !cabinetId || !window.firebase) return;
-
-  var dur   = Number(durationMin) || (window.docDuree) || 15;
-  var now   = Date.now();
-  var hour  = new Date(now).getHours();
-  var today = mlStatsToday();
-  var path  = 'stats/' + cabinetId + '/daily/' + today;
-  console.log('[STATS] Écriture Firebase → path:', path, '| dur:', dur, '| hour:', hour);
-
-  // Transaction atomique — évite la race condition si 2 consultations simultanées
-  firebase.database().ref(path).transaction(function(current) {
-    if (current === null) {
-      // Première entrée du jour
-      var h0 = {};
-      h0[hour] = 1;
-      return {
-        consultationsToday: 1,
-        totalDuration: dur,
-        hourlyCounts: h0,
-        lastConsultAt: now,
-        cabinetId: cabinetId,
-        date: today
-      };
-    }
-    // Incrémenter l'existant
-    var counts = current.hourlyCounts || {};
-    counts[hour] = (counts[hour] || 0) + 1;
-    return {
-      consultationsToday: (current.consultationsToday || 0) + 1,
-      totalDuration: (current.totalDuration || 0) + dur,
-      hourlyCounts: counts,
-      lastConsultAt: now,
-      cabinetId: cabinetId,
-      date: today
-    };
-  }, function(error, committed, snapshot) {
-    if (error) {
-      console.error('[STATS] ERREUR transaction Firebase:', error.code || error.message || error);
-      // Message d'erreur visible dans la carte stats
-      var elC = document.getElementById('mlStatConsultToday');
-      if (elC) {
-        elC.style.color = '#ef4444';
-        elC.title = 'Erreur: ' + (error.code || error.message || 'inconnu');
-        // Si PERMISSION_DENIED → message explicite
-        if (String(error.code || error.message || '').includes('PERMISSION_DENIED')) {
-          elC.textContent = 'ERR';
-          var section = document.getElementById('mlStatsSection');
-          if (section) {
-            var errDiv = document.getElementById('mlStatsFirebaseError');
-            if (!errDiv) {
-              errDiv = document.createElement('div');
-              errDiv.id = 'mlStatsFirebaseError';
-              errDiv.style.cssText = 'margin-top:8px;padding:8px 12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:11px;color:#dc2626;text-align:center';
-              section.appendChild(errDiv);
-            }
-            errDiv.textContent = '⚠️ Règles Firebase manquantes — ajoutez "stats" dans vos règles Realtime Database.';
-          }
-        }
-      }
-    } else if (committed) {
-      console.log('[STATS] Transaction OK — path:', path, '| dur:', dur, '| total:', snapshot.val() && snapshot.val().consultationsToday);
-    }
-  });
-}
-
-// ── Mettre à jour l'UI avec les données reçues ────────────────────
-function mlStatsUpdateUI(data) {
-  var section = document.getElementById('mlStatsSection');
-  if (!section) return;
-  section.style.display = 'block';
-
-  var count  = data ? (data.consultationsToday || 0) : 0;
-  var totDur = data ? (data.totalDuration || 0)       : 0;
-  var avgDur = count > 0 ? Math.round(totDur / count) : 0;
-  var counts = data ? (data.hourlyCounts || {})       : {};
-
-  // KPI 1 — Consultations aujourd'hui
-  var elCount = document.getElementById('mlStatConsultToday');
-  if (elCount) elCount.textContent = count;
-
-  // KPI 2 — Durée moyenne
-  var elAvg = document.getElementById('mlStatAvgWait');
-  if (elAvg) elAvg.textContent = avgDur > 0 ? avgDur + ' min' : (count > 0 ? '< 1 min' : '—');
-
-  // KPI 3 — Heure de pointe
-  var elPeak = document.getElementById('mlStatPeakHour');
-  if (elPeak) {
-    var peakHour = -1, peakVal = 0;
-    Object.keys(counts).forEach(function(h) {
-      if (counts[h] > peakVal) { peakVal = counts[h]; peakHour = Number(h); }
-    });
-    elPeak.textContent = peakHour >= 0 ? peakHour + 'h–' + (peakHour+1) + 'h' : '—';
-  }
-
-  // Détails — graphique 7 jours + textes
-  mlStatsUpdateDetail(data, count, avgDur, counts);
-}
-
-// ── Mettre à jour la section détails ──────────────────────────────
-function mlStatsUpdateDetail(data, count, avgDur, counts) {
-  // Durée moyenne texte
-  var elAvgTxt = document.getElementById('mlAvgDurText');
-  if (elAvgTxt) {
-    elAvgTxt.textContent = avgDur > 0
-      ? avgDur + ' min en moyenne (' + count + ' consultation' + (count>1?'s':'') + ' aujourd\'hui)'
-      : count > 0 ? count + ' consultation(s) aujourd\'hui' : 'Pas encore de consultations aujourd\'hui';
-  }
-
-  // Total — on affiche le jour actuel
-  var elTotal = document.getElementById('mlTotal30Text');
-  if (elTotal) elTotal.textContent = count + ' consultation' + (count>1?'s':'') + ' aujourd\'hui';
-
-  // Graphique par heure (répartition du jour)
-  var chartEl = document.getElementById('mlBarChart');
-  if (chartEl) {
-    // Afficher les heures 8h–20h
-    var hours = [];
-    for (var h = 8; h <= 20; h++) hours.push(h);
-    var maxC = 1;
-    hours.forEach(function(h) { if ((counts[h]||0) > maxC) maxC = counts[h]||0; });
-    var now_h = new Date().getHours();
-    chartEl.innerHTML = hours.map(function(h) {
-      var c2 = counts[h] || 0;
-      var pct = Math.max(6, Math.round(c2/maxC*100));
-      var cls = h === now_h ? 'today' : (c2 > 0 ? '' : 'low');
-      return '<div class="ml-bar-col">'
-        + '<div class="ml-bar ' + cls + '" style="height:' + pct + '%" title="' + c2 + ' consult.">' + (c2>0?'<span style="display:none">'+c2+'</span>':'') + '</div>'
-        + '<div class="ml-bar-day">' + h + 'h</div>'
-        + '</div>';
-    }).join('');
-  }
-}
-
-// ── Toggle "Voir détails" / "Masquer détails" ─────────────────────
-function mlStatsToggleDetail() {
-  var det = document.getElementById('mlStatsDetail');
-  var btn = document.getElementById('mlStatsToggleBtn');
-  if (!det) { console.error('[STATS] mlStatsDetail introuvable dans le DOM'); return; }
-  var isHidden = det.style.display === '' || det.style.display === 'none';
-  det.style.display = isHidden ? 'block' : 'none';
-  if (btn) btn.textContent = isHidden ? 'Masquer ▴' : 'Voir détails ▾';
-  console.log('[STATS] toggle détails →', isHidden ? 'ouvert' : 'fermé');
-}
-// Alias global garanti (au cas où le onclick HTML ne trouve pas la fonction)
-window.mlStatsToggleDetail  = mlStatsToggleDetail;
-window.toggleStatsDetails   = mlStatsToggleDetail;
-
-// ── Initialisation au chargement du dashboard ─────────────────────
-async function mlStatsRender() {
-  var section = document.getElementById('mlStatsSection');
-  if (!section) return;
-  section.style.display = 'block';
-
-  // Afficher 0 immédiatement (pas —) pendant le chargement
-  var elC = document.getElementById('mlStatConsultToday');
-  var elA = document.getElementById('mlStatAvgWait');
-  var elP = document.getElementById('mlStatPeakHour');
-  if (elC) elC.textContent = '0';
-  if (elA) elA.textContent = '—';
-  if (elP) elP.textContent = '—';
-
-  // Tester l'accès Firebase stats/ avant de démarrer le listener
-  var cabinetId = mlStatsGetCabinetId();
-  var today = mlStatsToday();
-  if (cabinetId && window.firebase) {
-    firebase.database().ref('stats/' + cabinetId + '/daily/' + today)
-      .once('value')
-      .then(function(snap) {
-        // Accès OK — démarrer le listener temps réel
-        mlStatsStartListener();
-        // Afficher données immédiates si existantes
-        if (snap.exists()) mlStatsUpdateUI(snap.val());
-      })
-      .catch(function(e) {
-        var isPermission = String(e.code || e.message || '').includes('PERMISSION_DENIED');
-        console.error('[STATS] Accès Firebase stats/ refusé:', e.code || e.message);
-        // Afficher message d'erreur clair dans la section stats
-        if (elC) { elC.textContent = '—'; elC.style.color = '#ef4444'; }
-        var errDiv = document.getElementById('mlStatsFirebaseError') || document.createElement('div');
-        errDiv.id = 'mlStatsFirebaseError';
-        errDiv.style.cssText = 'margin-top:8px;padding:10px 14px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:12px;color:#dc2626;text-align:left;line-height:1.5';
-        errDiv.innerHTML = isPermission
-          ? '⚠️ <strong>Règles Firebase à mettre à jour.</strong><br>Ajoutez <code>"stats": { ".read": true, ".write": true }</code> dans vos règles Realtime Database.'
-          : '⚠️ Erreur connexion Firebase stats: ' + (e.code || e.message || 'inconnu');
-        if (!errDiv.parentNode) section.appendChild(errDiv);
-      });
-  }
-}
-
-// ── Nettoyer au logout ────────────────────────────────────────────
-(function() {
-  var _origLogout = window.docLogout;
-  if (typeof _origLogout === 'function') {
-    window.docLogout = function() {
-      mlStatsStopListener();
-      return _origLogout.apply(this, arguments);
-    };
-  }
-})();
-
-/* ══════════════════════════════════════════════════════════════════
-   PORTAIL STRIPE — Accès self-service abonnement
-   ══════════════════════════════════════════════════════════════════ */
-
-async function mlOpenStripePortal() {
-  const btn = document.getElementById('mlPortalBtn');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Ouverture…'; }
-
-  try {
-    // Récupérer le stripeCustomerId depuis Firebase (source fiable)
-    let customerId = null;
-    try {
-      const snap = await firebase.database().ref('users/' + docCurrentUser + '/stripeCustomerId').get();
-      if (snap && snap.exists()) customerId = snap.val();
-    } catch(e) {}
-    // Fallback localStorage
-    if (!customerId) {
-      const lc = JSON.parse(localStorage.getItem('users') || '{}');
-      const u = lc[docCurrentUser] || {};
-      customerId = u.stripeCustomerId || null;
-    }
-
-    if (!customerId) {
-      showToast('⚠️ Aucun abonnement Stripe actif trouvé.', 'orange');
-      if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Gérer mon abonnement'; }
-      return;
-    }
-
-    // Appeler le worker /api/stripe-portal
-    const res = await fetch('/api/stripe-portal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        customerId,
-        returnUrl: location.href
-      })
-    });
-
-    const data = await res.json();
-
-    if (!res.ok || !data.url) {
-      console.error('[PORTAL] Erreur:', data.error);
-      showToast('❌ ' + (data.error || 'Impossible d\'ouvrir le portail.'), 'red');
-      if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Gérer mon abonnement'; }
-      return;
-    }
-
-    // Ouvrir le portail Stripe dans un nouvel onglet
-    window.open(data.url, '_blank');
-    if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Gérer mon abonnement'; }
-
-  } catch(e) {
-    console.error('[PORTAL] Erreur réseau:', e);
-    showToast('❌ Erreur de connexion au portail.', 'red');
-    if (btn) { btn.disabled = false; btn.innerHTML = '🔗 Gérer mon abonnement'; }
-  }
-}
-
-
 /* ═══════════════════════════════════════════════════════════════
-   PERSONNALISATION PAGE CABINET
+   STATISTIQUES — stockage cabinets/{uid}/stats/{YYYY-MM-DD}
+   Autorisé par les règles Firebase existantes (chemin cabinets/).
    ═══════════════════════════════════════════════════════════════ */
 
-function mlCsDrop(e) {
-  e.preventDefault();
-  document.getElementById('mlCsDrop').classList.remove('drag-on');
-  var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-  if (f) mlCsHandleFile(f);
-}
-
-function mlCsHandleFile(file) {
-  if (!file || !file.type.startsWith('image/')) return;
-  var r = new FileReader();
-  r.onload = function(ev) {
-    var b64 = ev.target.result;
-    document.getElementById('mlCsLogoData').value = b64;
-    var prev = document.getElementById('mlCsLogoPreview');
-    var lbl  = document.getElementById('mlCsDropLabel');
-    if (prev) { prev.src = b64; prev.style.display = 'block'; }
-    if (lbl)  { lbl.style.display = 'none'; }
-  };
-  r.readAsDataURL(file);
-}
-
-async function mlCsLoad() {
-  var uid = window.docCurrentUser || localStorage.getItem('ml_session');
-  if (!uid) return;
-  try {
-    var snap = await firebase.database().ref('cabinets/' + uid + '/custom').get();
-    var d = snap && snap.exists() ? snap.val() : {};
-    if (d.logoData) {
-      var prev = document.getElementById('mlCsLogoPreview');
-      var lbl  = document.getElementById('mlCsDropLabel');
-      var hid  = document.getElementById('mlCsLogoData');
-      if (prev) { prev.src = d.logoData; prev.style.display = 'block'; }
-      if (lbl)  { lbl.style.display = 'none'; }
-      if (hid)  { hid.value = d.logoData; }
-    }
-    var col = document.getElementById('mlCsColor');
-    var wel = document.getElementById('mlCsWelcome');
-    if (col && d.color)   col.value = d.color;
-    if (wel && d.welcome) wel.value = d.welcome;
-  } catch(e) { console.warn('[CS] load:', e); }
-}
-
-async function mlCsSave() {
-  var uid = window.docCurrentUser || localStorage.getItem('ml_session');
-  var msg = document.getElementById('mlCsMsg');
-  var btn = document.getElementById('mlCsSaveBtn');
-  if (!uid) { if(msg){msg.textContent='❌ Session expirée';msg.style.color='#ef4444';} return; }
-  if (btn) { btn.disabled=true; btn.textContent='⏳ Sauvegarde…'; }
-  if (msg) { msg.textContent=''; }
-  var data = {
-    color:   (document.getElementById('mlCsColor')   ||{}).value || '#1d4ed8',
-    welcome: (document.getElementById('mlCsWelcome') ||{}).value || ''
-  };
-  var logo = (document.getElementById('mlCsLogoData')||{}).value || '';
-  if (logo) data.logoData = logo;
-  console.log('[CS] Save uid:', uid, '| color:', data.color, '| logo:', !!logo);
-  try {
-    await firebase.database().ref('cabinets/' + uid + '/custom').set(data);
-    if (msg) { msg.textContent='✅ Sauvegardé !'; msg.style.color='#059669'; }
-  } catch(e) {
-    console.error('[CS] erreur:', e.code||e.message||e);
-    if (msg) { msg.textContent='❌ '+(e.message||'Erreur Firebase'); msg.style.color='#ef4444'; }
-  }
-  if (btn) { btn.disabled=false; btn.textContent='💾 Sauvegarder'; }
-  setTimeout(function(){ if(msg) msg.textContent=''; }, 3000);
-}
-
-// Exposer en window pour les onclick HTML
-window.mlCsDrop      = function(e){ mlCsDrop(e); };
-window.mlCsHandleFile= function(f){ mlCsHandleFile(f); };
-window.mlCsSave      = function(){ mlCsSave(); };
-
-function mlCsApply(cabData) {
-  if (!cabData) return;
-
-  var custom  = cabData.custom || {};
-  var color   = custom.color    || '#1d4ed8';
-  var logo    = custom.logoData || '';
-  var welcome = custom.welcome  || '';
-  var name    = cabData.name    || '';
-  var addr    = cabData.adresse || '';
-
-  function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-  function lighten(hex) {
-    try {
-      var r=parseInt(hex.slice(1,3),16)+60, g=parseInt(hex.slice(3,5),16)+60, b=parseInt(hex.slice(5,7),16)+60;
-      r=Math.min(255,r); g=Math.min(255,g); b=Math.min(255,b);
-      return '#'+[r,g,b].map(function(v){return v.toString(16).padStart(2,'0');}).join('');
-    } catch(e) { return '#60a5fa'; }
-  }
-
-  var hdrWrap = document.getElementById('cabHdrWrap');
-  var msgWrap = document.getElementById('cabMsgWrap');
-  var nameEl  = document.getElementById('cabinetName');
-  var addrEl  = document.getElementById('cabinetAddr');
-
-  // Toujours afficher le header (même sans perso, affiche nom + adresse proprement)
-
-  // ── Bannière + header ──────────────────────────────────────────
-  if (hdrWrap) {
-    var logoHtml = logo
-      ? '<img src="' + logo.replace(/"/g,'&quot;') + '" style="width:56px;height:56px;border-radius:12px;object-fit:cover;border:2px solid rgba(255,255,255,.3)" alt="Logo">'
-      : '<div style="width:56px;height:56px;border-radius:12px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:28px">🏥</div>';
-
-    hdrWrap.style.cssText = 'margin-bottom:16px;border-radius:14px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.12)';
-    hdrWrap.innerHTML =
-      // Bannière couleur
-      '<div style="background:linear-gradient(135deg,' + color + ',' + lighten(color) + ');padding:20px 16px 14px;display:flex;align-items:center;gap:14px">'
-      +   logoHtml
-      +   '<div style="flex:1;min-width:0">'
-      +     '<div style="font-size:18px;font-weight:800;color:#fff;line-height:1.2;text-shadow:0 1px 3px rgba(0,0,0,.2)">' + esc(name) + '</div>'
-      +     (addr ? '<div style="font-size:12px;color:rgba(255,255,255,.85);margin-top:3px">📍 ' + esc(addr) + '</div>' : '')
-      +   '</div>'
-      + '</div>';
-
-    // Masquer les éléments texte par défaut (maintenant dans le header)
-    if (nameEl) nameEl.style.display = 'none';
-    if (addrEl) addrEl.style.display = 'none';
-  }
-
-  // ── Message d'accueil ─────────────────────────────────────────
-  if (msgWrap) {
-    if (welcome) {
-      msgWrap.style.cssText = 'background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px;color:#1e40af;line-height:1.5';
-      msgWrap.innerHTML = '💬 ' + esc(welcome);
-    } else {
-      msgWrap.innerHTML = '';
-    }
-  }
-}
-
-
-/* ═══════════════════════════════════════════════════════════════════
-   STATISTIQUES CONSULTATIONS — stockage cabinets/{uid}/stats/{date}
-   Chemin autorisé par les règles Firebase existantes.
-   ═══════════════════════════════════════════════════════════════════ */
-
+// ── Date du jour ─────────────────────────────────────────────────
 function mlStatsDate() {
   var d = new Date();
   return d.getFullYear() + '-' +
@@ -12321,133 +11868,112 @@ function mlStatsDate() {
     String(d.getDate()).padStart(2,'0');
 }
 
+// ── UID owner (invité → owner du cabinet) ────────────────────────
 function mlStatsOwnerUid() {
   var uid = window.docCurrentUser || localStorage.getItem('ml_session');
   if (!uid) return null;
-  // Médecin invité → écrire dans le cabinet du owner
   try {
-    var lsUsers = JSON.parse(localStorage.getItem('users') || '{}');
-    var u = lsUsers[uid] || window._lastDocData || null;
-    if (u) {
-      var owner = u.billingOwner || u.invitedBy || u.addedBy || null;
-      if (owner && owner !== uid) return owner;
-    }
+    var u = (JSON.parse(localStorage.getItem('users')||'{}'))[uid] || window._lastDocData || {};
+    var owner = u.billingOwner || u.invitedBy || u.addedBy || null;
+    if (owner && owner !== uid) return owner;
   } catch(e) {}
   return uid;
 }
 
+// ── Enregistrer une consultation ─────────────────────────────────
 function mlStatsRecord(durationMin) {
   var ownerUid = mlStatsOwnerUid();
   if (!ownerUid || !window.firebase) return;
-  var dur  = Number(durationMin) || Number(window.docDuree) || 15;
+  var dur  = Math.max(1, Number(durationMin) || Number(window.docDuree) || 15);
   var hour = new Date().getHours();
-  var date = mlStatsDate();
-  var path = 'cabinets/' + ownerUid + '/stats/' + date;
-
-  firebase.database().ref(path).transaction(function(current) {
-    var s = current || { consultations: 0, totalDuration: 0, hours: {} };
-    s.consultations  = (s.consultations  || 0) + 1;
-    s.totalDuration  = (s.totalDuration  || 0) + dur;
-    s.hours          = s.hours || {};
-    s.hours[hour]    = (s.hours[hour]    || 0) + 1;
-    s.lastAt         = Date.now();
-    s.date           = date;
+  var path = 'cabinets/' + ownerUid + '/stats/' + mlStatsDate();
+  firebase.database().ref(path).transaction(function(s) {
+    s = s || { consultations: 0, totalDuration: 0, hours: {} };
+    s.consultations = (s.consultations || 0) + 1;
+    s.totalDuration = (s.totalDuration || 0) + dur;
+    s.hours = s.hours || {};
+    s.hours[String(hour)] = (s.hours[String(hour)] || 0) + 1;
+    s.lastAt = Date.now();
     return s;
   }, function(err, committed) {
-    if (err) console.error('[STATS] erreur Firebase:', err.code || err.message);
-    else if (committed) {
-      console.log('[STATS] OK — uid:', ownerUid, '| dur:', dur, 'min | heure:', hour + 'h');
-      // Mettre à jour l'affichage si la section stats est visible
-      if (typeof mlStatsRefreshUI === 'function') mlStatsRefreshUI(ownerUid, date);
+    if (err) {
+      console.error('[STATS] Erreur Firebase:', err.code || err.message);
+    } else if (committed) {
+      console.log('[STATS] OK — ownerUid:', ownerUid, '| dur:', dur, '| h:', hour);
     }
   });
 }
 
-// ── Affichage stats dans le dashboard ─────────────────────────────
-var _mlStatsListenerRef = null;
+// ── Listener temps réel ───────────────────────────────────────────
+var _mlStatsRef = null;
 
 function mlStatsStartListener() {
   var ownerUid = mlStatsOwnerUid();
   if (!ownerUid || !window.firebase) return;
-  var date = mlStatsDate();
-  var path = 'cabinets/' + ownerUid + '/stats/' + date;
-
-  if (_mlStatsListenerRef) {
-    try { _mlStatsListenerRef.off(); } catch(e) {}
-  }
-  _mlStatsListenerRef = firebase.database().ref(path);
-  _mlStatsListenerRef.on('value', function(snap) {
-    var data = snap && snap.exists() ? snap.val() : null;
-    mlStatsUpdateUI(data);
+  if (_mlStatsRef) { try { _mlStatsRef.off(); } catch(e) {} }
+  _mlStatsRef = firebase.database().ref('cabinets/' + ownerUid + '/stats/' + mlStatsDate());
+  _mlStatsRef.on('value', function(snap) {
+    mlStatsUpdateUI(snap && snap.exists() ? snap.val() : null);
   });
+  console.log('[STATS] Listener démarré pour', ownerUid);
 }
 
 function mlStatsStopListener() {
-  if (_mlStatsListenerRef) {
-    try { _mlStatsListenerRef.off(); } catch(e) {}
-    _mlStatsListenerRef = null;
-  }
+  if (_mlStatsRef) { try { _mlStatsRef.off(); } catch(e) {} _mlStatsRef = null; }
 }
 
-function mlStatsRefreshUI(ownerUid, date) {
-  // Appelée après un write — recharge les données
-  if (_mlStatsListenerRef) return; // listener déjà actif
-  firebase.database().ref('cabinets/' + ownerUid + '/stats/' + date).once('value')
-    .then(function(snap) { mlStatsUpdateUI(snap && snap.exists() ? snap.val() : null); })
-    .catch(function() {});
-}
-
+// ── Mettre à jour l'interface ─────────────────────────────────────
 function mlStatsUpdateUI(data) {
   var section = document.getElementById('mlStatsSection');
   if (!section) return;
   section.style.display = 'block';
 
-  var count   = data ? (data.consultations || 0) : 0;
-  var totDur  = data ? (data.totalDuration  || 0) : 0;
-  var hours   = data ? (data.hours          || {}) : {};
-  var avgDur  = count > 0 ? Math.round(totDur / count) : 0;
+  var count  = data ? (data.consultations || 0) : 0;
+  var totDur = data ? (data.totalDuration  || 0) : 0;
+  var hours  = data ? (data.hours          || {}) : {};
+  var avgDur = count > 0 ? Math.round(totDur / count) : 0;
 
-  // Heure de pointe
-  var peakHour = -1, peakVal = 0;
+  var peakH = -1, peakV = 0;
   Object.keys(hours).forEach(function(h) {
-    if (hours[h] > peakVal) { peakVal = hours[h]; peakHour = Number(h); }
+    if (Number(hours[h]) > peakV) { peakV = Number(hours[h]); peakH = Number(h); }
   });
 
-  var elCount = document.getElementById('mlStatCount');
-  var elAvg   = document.getElementById('mlStatAvg');
-  var elPeak  = document.getElementById('mlStatPeak');
-  if (elCount) elCount.textContent = count;
-  if (elAvg)   elAvg.textContent   = avgDur > 0 ? avgDur + ' min' : '—';
-  if (elPeak)  elPeak.textContent  = peakHour >= 0 ? peakHour + 'h–' + (peakHour+1) + 'h' : '—';
+  var elC = document.getElementById('mlStatCount');
+  var elA = document.getElementById('mlStatAvg');
+  var elP = document.getElementById('mlStatPeak');
+  if (elC) elC.textContent = count;
+  if (elA) elA.textContent = avgDur > 0 ? avgDur + ' min' : '—';
+  if (elP) elP.textContent = peakH >= 0 ? peakH + 'h–' + (peakH+1) + 'h' : '—';
 
-  // Graphique barres par heure (8h–20h)
+  // Graphique barres 8h–20h
   var chart = document.getElementById('mlStatsChart');
   if (chart) {
     var maxV = 1;
-    for (var h2 = 8; h2 <= 20; h2++) { if ((hours[h2]||0) > maxV) maxV = hours[h2]; }
+    for (var h2 = 8; h2 <= 20; h2++) { if (Number(hours[String(h2)]||0) > maxV) maxV = Number(hours[String(h2)]); }
     var nowH = new Date().getHours();
     var bars = '';
     for (var h3 = 8; h3 <= 20; h3++) {
-      var v = hours[h3] || 0;
-      var pct = Math.max(4, Math.round(v / maxV * 100));
-      var col = h3 === nowH ? '#2563eb' : (v > 0 ? '#93c5fd' : '#e2e8f0');
-      bars += '<div style="display:flex;flex-direction:column;align-items:center;flex:1;gap:3px">'
-        + '<div style="width:100%;border-radius:4px 4px 0 0;background:' + col + ';height:' + pct + '%" title="' + v + ' consultation(s)"></div>'
-        + '<div style="font-size:8px;color:#94a3b8;font-weight:600">' + h3 + 'h</div>'
+      var v = Number(hours[String(h3)] || 0);
+      var pct = Math.max(5, Math.round(v / maxV * 100));
+      var col = (h3 === nowH) ? '#2563eb' : (v > 0 ? '#93c5fd' : '#e2e8f0');
+      bars += '<div style="display:flex;flex-direction:column;align-items:center;flex:1;gap:2px">'
+        + '<div style="width:100%;border-radius:3px 3px 0 0;background:' + col + ';height:' + pct + '%"></div>'
+        + '<div style="font-size:8px;color:#94a3b8">' + h3 + '</div>'
         + '</div>';
     }
     chart.innerHTML = bars;
   }
 }
 
-function mlStatsToggle() {
+// ── Toggle détails ────────────────────────────────────────────────
+window.mlStatsToggle = function() {
   var det = document.getElementById('mlStatsDetail');
   var btn = document.getElementById('mlStatsToggleBtn');
   if (!det) return;
   var open = det.style.display === 'block';
   det.style.display = open ? 'none' : 'block';
   if (btn) btn.textContent = open ? 'Voir détails ▾' : 'Masquer ▴';
-}
+};
 
 </script>
 
