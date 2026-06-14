@@ -2402,10 +2402,7 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
           <label>Heure de rendez-vous</label>
           <input type="time" id="patRegHeure">
         </div>
-        <div class="pat-reg-field">
-          <label>Téléphone <span style="font-weight:400;color:var(--muted)">(optionnel — pour être prévenu de votre tour)</span></label>
-          <input type="tel" id="patRegPhone" placeholder="06 12 34 56 78" autocomplete="tel">
-        </div>
+
         <div class="pat-reg-field" id="patRegDocField" style="display:none">
           <label>Médecin</label>
           <select id="patRegDoc"></select>
@@ -9832,16 +9829,12 @@ function mlKeepAlive() {
     if (!selectedDoctorId) { if (msg) msg.textContent = 'Erreur : médecin non sélectionné.'; return; }
 
     var patientId = 'pat_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
-    var phoneEl = document.getElementById('patRegPhone');
-    var phone = (phoneEl && phoneEl.value || '').trim().replace(/\s/g, '');
-
     var patient = {
       id: patientId,
       doctorId: selectedDoctorId,
       cabinetId: patCurrentCabinetCode || '',
       nom: nom,
       name: nom,
-      phone: phone || null,
       heureRdv: heure,
       appointmentTime: heure,
       heureArrivee: nowHHMM(),
@@ -9875,6 +9868,10 @@ function mlKeepAlive() {
 
       var form = document.getElementById('patRegisterForm');
       var personal = document.getElementById('patPersonalView');
+      // Demander permission notifications pour être prévenu
+      if (typeof mlPushRequestPermission === 'function') {
+        mlPushRequestPermission().catch(function(){});
+      }
       if (form) form.style.display = 'none';
       if (personal) personal.style.display = 'block';
 
@@ -11699,8 +11696,8 @@ window.checkPromo = function() {
         try{ window.docUpdate&&window.docUpdate(); }catch(e){}
         setTimeout(function(){ patRef.remove().catch(function(){}); },120000);
         if(typeof showToast==='function') showToast('✅ Patient passé · temps retiré','green');
-        // SMS au patient suivant
-        if (typeof mlSmsSendNextPatient === 'function') mlSmsSendNextPatient(owner).catch(function(){});
+        // Notification push au patient suivant
+        if (typeof mlPushNotifyNextPatient === 'function') mlPushNotifyNextPatient(owner).catch(function(){});
       }else if(action==='absent'){
         await patRef.update({status:'absent',statut:'absent',absentAt:now(),updatedAt:now()});
         setTimeout(function(){ patRef.remove().catch(function(){}); },120000);
@@ -11787,59 +11784,78 @@ window.checkPromo = function() {
 
 
 
+
+
 /* ═══════════════════════════════════════════════════════════════
-   SMS PATIENTS — Notification au prochain patient via Twilio
-   Worker : /api/send-sms
-   Déclenché quand le médecin marque un patient comme "Passé"
+   NOTIFICATIONS PUSH — Web Push API (gratuit, natif)
+   Le patient accepte les notifications → reçoit une alerte quand c'est son tour
    ═══════════════════════════════════════════════════════════════ */
 
-async function mlSmsSendNextPatient(doctorId) {
-  if (!doctorId || !window.firebase) return;
+// Demander la permission aux notifications quand le patient s'enregistre
+async function mlPushRequestPermission() {
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) return false;
+  if (Notification.permission === 'granted') return true;
+  if (Notification.permission === 'denied') return false;
+  var perm = await Notification.requestPermission();
+  return perm === 'granted';
+}
+
+// Envoyer une notification locale (pas besoin de serveur push)
+// Fonctionne même depuis l'onglet actif
+async function mlPushNotifyNextPatient(doctorId) {
+  if (!('Notification' in window)) return;
+  if (!window.firebase) return;
 
   try {
-    // Lire la liste des patients en attente pour ce médecin
     var snap = await firebase.database().ref('namedPatients/' + doctorId).once('value');
     if (!snap || !snap.exists()) return;
 
     var patients = Object.values(snap.val() || {});
-    // Filtrer : uniquement en attente, triés par heure RDV
     var waiting = patients
       .filter(function(p) { return p.status === 'waiting' || p.statut === 'waiting'; })
-      .filter(function(p) { return p.phone; }) // uniquement ceux avec un téléphone
       .sort(function(a, b) {
         var ha = a.heureRdv || a.appointmentTime || '';
         var hb = b.heureRdv || b.appointmentTime || '';
         return ha.localeCompare(hb);
       });
 
-    if (!waiting.length) return; // personne avec téléphone en attente
-
-    // Prendre le premier patient avec téléphone
+    if (!waiting.length) return;
     var next = waiting[0];
-    var phone = next.phone;
     var nom = next.nom || next.name || 'patient';
 
-    console.log('[SMS] Envoi au suivant:', nom, '|', phone);
+    console.log('[PUSH] Notification au suivant:', nom);
 
-    var res = await fetch('/api/send-sms', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        to: phone,
-        message: 'MediLine — Bonjour ' + nom + ', c\'est bientôt votre tour ! Votre médecin vous recevra dans quelques minutes.'
-      })
-    });
+    // Notification via Service Worker (fonctionne en arrière-plan)
+    if ('serviceWorker' in navigator) {
+      var reg = await navigator.serviceWorker.ready;
+      if (reg && reg.showNotification) {
+        await reg.showNotification('🏥 MediLine — C\'est votre tour !', {
+          body   : 'Bonjour ' + nom + ', le médecin est prêt à vous recevoir.',
+          icon   : '/icon-192.png',
+          badge  : '/icon-192.png',
+          tag    : 'mediline-tour-' + next.id,
+          vibrate: [200, 100, 200]
+        });
+        console.log('[PUSH] Notification envoyée à', nom);
+        return;
+      }
+    }
 
-    var data = await res.json().catch(function() { return {}; });
-    if (data.ok) {
-      console.log('[SMS] OK — sid:', data.sid, '| destinataire:', nom);
-    } else {
-      console.warn('[SMS] Échec:', data.error || 'inconnu');
+    // Fallback : notification directe (si onglet actif)
+    if (Notification.permission === 'granted') {
+      new Notification('🏥 MediLine — C\'est votre tour !', {
+        body : 'Bonjour ' + nom + ', le médecin est prêt à vous recevoir.',
+        icon : '/icon-192.png',
+        tag  : 'mediline-tour'
+      });
     }
   } catch(e) {
-    console.warn('[SMS] Erreur:', e.message || e);
+    console.warn('[PUSH] Erreur:', e.message || e);
   }
 }
+
+// Exposer globalement
+window.mlPushNotifyNextPatient = mlPushNotifyNextPatient;
 
 </script>
 
