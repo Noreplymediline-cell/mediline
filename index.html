@@ -2267,6 +2267,33 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
         </div>
       </div>
       <!-- ════════════════════════════════════════════════════════ -->
+      <!-- ══ STATISTIQUES DU CABINET ════════════════════════════ -->
+      <div id="mlStatsSection" style="background:#fff;border-radius:16px;padding:18px;margin-bottom:14px;border:1.5px solid var(--border);display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--blue)">📊 Statistiques du jour</div>
+          <button id="mlStatsToggleBtn" onclick="mlStatsToggle()" type="button" style="background:none;border:none;font-size:11px;font-weight:700;color:var(--blue);cursor:pointer;padding:0">Voir détails ▾</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:0">
+          <div style="background:var(--bg);border-radius:12px;padding:12px 8px;text-align:center;border:1px solid var(--border)">
+            <div id="mlStatCount" style="font-size:24px;font-weight:800;color:var(--navy)">0</div>
+            <div style="font-size:10px;color:var(--muted);font-weight:600;margin-top:3px">Consultations</div>
+          </div>
+          <div style="background:var(--bg);border-radius:12px;padding:12px 8px;text-align:center;border:1px solid var(--border)">
+            <div id="mlStatAvg" style="font-size:24px;font-weight:800;color:var(--navy)">—</div>
+            <div style="font-size:10px;color:var(--muted);font-weight:600;margin-top:3px">Durée moy.</div>
+          </div>
+          <div style="background:var(--bg);border-radius:12px;padding:12px 8px;text-align:center;border:1px solid var(--border)">
+            <div id="mlStatPeak" style="font-size:18px;font-weight:800;color:var(--navy)">—</div>
+            <div style="font-size:10px;color:var(--muted);font-weight:600;margin-top:3px">Heure pointe</div>
+          </div>
+        </div>
+        <div id="mlStatsDetail" style="display:none;margin-top:14px">
+          <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Répartition par heure</div>
+          <div id="mlStatsChart" style="display:flex;align-items:flex-end;gap:3px;height:60px;padding:0 2px"></div>
+        </div>
+      </div>
+      <!-- ═══════════════════════════════════════════════════════════ -->
+
       <!-- ══ PERSONNALISATION PAGE CABINET ══════════════════════ -->
       <div class="ml-cs" id="mlCsSection">
         <div class="ml-cs-title">🎨 Page cabinet (vue patients)</div>
@@ -4832,11 +4859,7 @@ function docRemove() {
   } catch {}
   // Réinitialiser le type après consultation terminée
   setConsultType('normale');
-  // Enregistrer la stat au moment exact de la consultation terminée
-  console.log('CONSULTATION_TERMINEE_CLICK', { source: 'docRemove', dur: window.docDuree || 15, cabinetId: mlStatsGetCabinetId ? mlStatsGetCabinetId() : 'N/A' });
-  if (typeof mlStatsRecordConsult === 'function') {
-    mlStatsRecordConsult(window.docDuree || 15);
-  }
+  if (typeof mlStatsRecord === 'function') mlStatsRecord(window.docDuree || 15);
   docSave(true); docUpdate(); // true = reset startedAt (action réelle)
   showToast('✅ Consultation terminée');
 }
@@ -8417,6 +8440,7 @@ async function dmInitSection() {
 
   dmRenderPlanInfo();
   setTimeout(function(){ if(typeof mlCsLoad==="function") mlCsLoad(); }, 400);
+  setTimeout(function(){ if(typeof mlStatsStartListener==="function") mlStatsStartListener(); }, 600);
 
   // Charger les statistiques (module additif — ne modifie rien d'existant)
   setTimeout(function() {
@@ -11740,6 +11764,8 @@ window.checkPromo = function() {
           q.p=p;q.patients=p;q.r=r;q.retard=r;q.total=total;q.totalMinutes=total;q.duree=d;q.updatedAt=now();q.ts=now();
           return q;
         });
+        // Enregistrer la stat
+        if (typeof mlStatsRecord === 'function') mlStatsRecord(d);
         window.docPatients=Math.max(0,Number(window.docPatients||0)-1);
         window.docRetard=Math.max(0,Number(window.docRetard||0)-d);
         try{ window.docUpdate&&window.docUpdate(); }catch(e){}
@@ -12280,6 +12306,147 @@ function mlCsApply(cabData) {
       msgWrap.innerHTML = '';
     }
   }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   STATISTIQUES CONSULTATIONS — stockage cabinets/{uid}/stats/{date}
+   Chemin autorisé par les règles Firebase existantes.
+   ═══════════════════════════════════════════════════════════════════ */
+
+function mlStatsDate() {
+  var d = new Date();
+  return d.getFullYear() + '-' +
+    String(d.getMonth()+1).padStart(2,'0') + '-' +
+    String(d.getDate()).padStart(2,'0');
+}
+
+function mlStatsOwnerUid() {
+  var uid = window.docCurrentUser || localStorage.getItem('ml_session');
+  if (!uid) return null;
+  // Médecin invité → écrire dans le cabinet du owner
+  try {
+    var lsUsers = JSON.parse(localStorage.getItem('users') || '{}');
+    var u = lsUsers[uid] || window._lastDocData || null;
+    if (u) {
+      var owner = u.billingOwner || u.invitedBy || u.addedBy || null;
+      if (owner && owner !== uid) return owner;
+    }
+  } catch(e) {}
+  return uid;
+}
+
+function mlStatsRecord(durationMin) {
+  var ownerUid = mlStatsOwnerUid();
+  if (!ownerUid || !window.firebase) return;
+  var dur  = Number(durationMin) || Number(window.docDuree) || 15;
+  var hour = new Date().getHours();
+  var date = mlStatsDate();
+  var path = 'cabinets/' + ownerUid + '/stats/' + date;
+
+  firebase.database().ref(path).transaction(function(current) {
+    var s = current || { consultations: 0, totalDuration: 0, hours: {} };
+    s.consultations  = (s.consultations  || 0) + 1;
+    s.totalDuration  = (s.totalDuration  || 0) + dur;
+    s.hours          = s.hours || {};
+    s.hours[hour]    = (s.hours[hour]    || 0) + 1;
+    s.lastAt         = Date.now();
+    s.date           = date;
+    return s;
+  }, function(err, committed) {
+    if (err) console.error('[STATS] erreur Firebase:', err.code || err.message);
+    else if (committed) {
+      console.log('[STATS] OK — uid:', ownerUid, '| dur:', dur, 'min | heure:', hour + 'h');
+      // Mettre à jour l'affichage si la section stats est visible
+      if (typeof mlStatsRefreshUI === 'function') mlStatsRefreshUI(ownerUid, date);
+    }
+  });
+}
+
+// ── Affichage stats dans le dashboard ─────────────────────────────
+var _mlStatsListenerRef = null;
+
+function mlStatsStartListener() {
+  var ownerUid = mlStatsOwnerUid();
+  if (!ownerUid || !window.firebase) return;
+  var date = mlStatsDate();
+  var path = 'cabinets/' + ownerUid + '/stats/' + date;
+
+  if (_mlStatsListenerRef) {
+    try { _mlStatsListenerRef.off(); } catch(e) {}
+  }
+  _mlStatsListenerRef = firebase.database().ref(path);
+  _mlStatsListenerRef.on('value', function(snap) {
+    var data = snap && snap.exists() ? snap.val() : null;
+    mlStatsUpdateUI(data);
+  });
+}
+
+function mlStatsStopListener() {
+  if (_mlStatsListenerRef) {
+    try { _mlStatsListenerRef.off(); } catch(e) {}
+    _mlStatsListenerRef = null;
+  }
+}
+
+function mlStatsRefreshUI(ownerUid, date) {
+  // Appelée après un write — recharge les données
+  if (_mlStatsListenerRef) return; // listener déjà actif
+  firebase.database().ref('cabinets/' + ownerUid + '/stats/' + date).once('value')
+    .then(function(snap) { mlStatsUpdateUI(snap && snap.exists() ? snap.val() : null); })
+    .catch(function() {});
+}
+
+function mlStatsUpdateUI(data) {
+  var section = document.getElementById('mlStatsSection');
+  if (!section) return;
+  section.style.display = 'block';
+
+  var count   = data ? (data.consultations || 0) : 0;
+  var totDur  = data ? (data.totalDuration  || 0) : 0;
+  var hours   = data ? (data.hours          || {}) : {};
+  var avgDur  = count > 0 ? Math.round(totDur / count) : 0;
+
+  // Heure de pointe
+  var peakHour = -1, peakVal = 0;
+  Object.keys(hours).forEach(function(h) {
+    if (hours[h] > peakVal) { peakVal = hours[h]; peakHour = Number(h); }
+  });
+
+  var elCount = document.getElementById('mlStatCount');
+  var elAvg   = document.getElementById('mlStatAvg');
+  var elPeak  = document.getElementById('mlStatPeak');
+  if (elCount) elCount.textContent = count;
+  if (elAvg)   elAvg.textContent   = avgDur > 0 ? avgDur + ' min' : '—';
+  if (elPeak)  elPeak.textContent  = peakHour >= 0 ? peakHour + 'h–' + (peakHour+1) + 'h' : '—';
+
+  // Graphique barres par heure (8h–20h)
+  var chart = document.getElementById('mlStatsChart');
+  if (chart) {
+    var maxV = 1;
+    for (var h2 = 8; h2 <= 20; h2++) { if ((hours[h2]||0) > maxV) maxV = hours[h2]; }
+    var nowH = new Date().getHours();
+    var bars = '';
+    for (var h3 = 8; h3 <= 20; h3++) {
+      var v = hours[h3] || 0;
+      var pct = Math.max(4, Math.round(v / maxV * 100));
+      var col = h3 === nowH ? '#2563eb' : (v > 0 ? '#93c5fd' : '#e2e8f0');
+      bars += '<div style="display:flex;flex-direction:column;align-items:center;flex:1;gap:3px">'
+        + '<div style="width:100%;border-radius:4px 4px 0 0;background:' + col + ';height:' + pct + '%" title="' + v + ' consultation(s)"></div>'
+        + '<div style="font-size:8px;color:#94a3b8;font-weight:600">' + h3 + 'h</div>'
+        + '</div>';
+    }
+    chart.innerHTML = bars;
+  }
+}
+
+function mlStatsToggle() {
+  var det = document.getElementById('mlStatsDetail');
+  var btn = document.getElementById('mlStatsToggleBtn');
+  if (!det) return;
+  var open = det.style.display === 'block';
+  det.style.display = open ? 'none' : 'block';
+  if (btn) btn.textContent = open ? 'Voir détails ▾' : 'Masquer ▴';
 }
 
 </script>
