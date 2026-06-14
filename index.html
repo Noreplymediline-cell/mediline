@@ -9851,6 +9851,8 @@ function mlKeepAlive() {
 
       var form = document.getElementById('patRegisterForm');
       var personal = document.getElementById('patPersonalView');
+      // Demander permission notifications pour être prévenu de son tour
+      if (typeof mlPushAskPermission === 'function') mlPushAskPermission().catch(function(){});
       if (form) form.style.display = 'none';
       if (personal) personal.style.display = 'block';
 
@@ -11675,6 +11677,8 @@ window.checkPromo = function() {
         try{ window.docUpdate&&window.docUpdate(); }catch(e){}
         setTimeout(function(){ patRef.remove().catch(function(){}); },120000);
         if(typeof showToast==='function') showToast('✅ Patient passé · temps retiré','green');
+        // Notification push au patient suivant
+        if(typeof mlPushNext==='function') mlPushNext(owner).catch(function(){});
       }else if(action==='absent'){
         await patRef.update({status:'absent',statut:'absent',absentAt:now(),updatedAt:now()});
         setTimeout(function(){ patRef.remove().catch(function(){}); },120000);
@@ -11759,6 +11763,73 @@ window.checkPromo = function() {
 
 })();
 
+
+
+/* ═══════════════════════════════════════════════════════
+   NOTIFICATIONS PUSH — Web Push natif, 100% gratuit
+   Déclenché quand médecin marque "Patient passé"
+   Le 1er patient suivant reçoit une notification
+   ═══════════════════════════════════════════════════════ */
+
+// Demander permission quand le patient s'enregistre dans la file
+async function mlPushAskPermission() {
+  if (!('Notification' in window)) return false;
+  if (Notification.permission === 'granted') return true;
+  if (Notification.permission === 'denied') return false;
+  var p = await Notification.requestPermission();
+  return p === 'granted';
+}
+
+// Notifier le prochain patient en attente
+async function mlPushNext(doctorId) {
+  if (!('Notification' in window) || !window.firebase) return;
+  if (Notification.permission !== 'granted') return;
+
+  try {
+    var snap = await firebase.database()
+      .ref('namedPatients/' + doctorId)
+      .once('value');
+    if (!snap || !snap.exists()) return;
+
+    // Trier par heure RDV, prendre le 1er en attente
+    var waiting = Object.values(snap.val() || {})
+      .filter(function(p){ return p.status==='waiting'||p.statut==='waiting'; })
+      .sort(function(a,b){
+        return (a.heureRdv||'').localeCompare(b.heureRdv||'');
+      });
+
+    if (!waiting.length) return;
+    var next = waiting[0];
+    var nom = next.nom || next.name || 'Patient';
+
+    // Envoyer via Service Worker si dispo (fonctionne en arrière-plan)
+    if ('serviceWorker' in navigator) {
+      var reg = await navigator.serviceWorker.getRegistration();
+      if (reg && reg.showNotification) {
+        await reg.showNotification('🏥 C\'est bientôt votre tour !', {
+          body   : 'Bonjour ' + nom + ', le médecin va vous recevoir dans quelques instants.',
+          icon   : '/favicon.ico',
+          tag    : 'mediline-tour',
+          vibrate: [200, 100, 200],
+          requireInteraction: false
+        });
+        console.log('[PUSH] Notif envoyée à', nom);
+        return;
+      }
+    }
+    // Fallback : notification directe (onglet actif seulement)
+    new Notification('🏥 C\'est bientôt votre tour !', {
+      body: 'Bonjour ' + nom + ', le médecin va vous recevoir dans quelques instants.',
+      tag : 'mediline-tour'
+    });
+    console.log('[PUSH] Notif directe à', nom);
+  } catch(e) {
+    console.warn('[PUSH]', e.message||e);
+  }
+}
+
+window.mlPushAskPermission = mlPushAskPermission;
+window.mlPushNext = mlPushNext;
 
 </script>
 
