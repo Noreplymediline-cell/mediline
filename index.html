@@ -2252,10 +2252,20 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
           <textarea id="mlCsWelcome" rows="3" placeholder="Ex : Bienvenue ! Votre médecin vous reçoit dans les meilleurs délais."></textarea>
         </div>
         <button class="ml-cs-save" id="mlCsSaveBtn" onclick="(async function(){
-  var uid = window.docCurrentUser || localStorage.getItem('ml_session');
+  // Récupérer uid depuis toutes les sources possibles
+  var uid = window.docCurrentUser
+    || localStorage.getItem('ml_session')
+    || (window._lastDocData && window._lastDocData.uid)
+    || (function(){
+         try {
+           var users = JSON.parse(localStorage.getItem('users') || '{}');
+           var keys = Object.keys(users);
+           return keys.length === 1 ? keys[0] : null;
+         } catch(e) { return null; }
+       })();
   var msg = document.getElementById('mlCsMsg');
   var btn = document.getElementById('mlCsSaveBtn');
-  if(!uid){if(msg){msg.textContent='❌ Session expirée';msg.style.color='#ef4444';}return;}
+  if(!uid){if(msg){msg.textContent='❌ Reconnectez-vous pour sauvegarder.';msg.style.color='#ef4444';}return;}
   if(btn){btn.disabled=true;btn.textContent='⏳...';}
   var data={
     color:(document.getElementById('mlCsColor')||{}).value||'#1d4ed8',
