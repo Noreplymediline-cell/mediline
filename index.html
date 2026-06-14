@@ -11810,56 +11810,34 @@ async function mlStLoad() {
 }
 
 function mlStRecord(durMin) {
+  var dur = Math.max(1, Number(durMin) || 15);
+  var today = mlStDate();
+  var key = 'mlst_' + today;
+
+  // 1. Mettre à jour localStorage immédiatement
+  var local = JSON.parse(localStorage.getItem(key) || '{"c":0,"d":0,"h":{}}');
+  local.c += 1;
+  local.d += dur;
+  var h = String(new Date().getHours());
+  local.h[h] = (local.h[h] || 0) + 1;
+  localStorage.setItem(key, JSON.stringify(local));
+
+  // 2. Afficher immédiatement depuis localStorage
+  mlStShow(local);
+
+  // 3. Tenter Firebase en arrière-plan
   var owner = mlStOwner();
-  if (!owner || !window.firebase) return;
-  var dur = Math.max(1, Number(durMin) || Number(window.docDuree) || 15);
-  var h   = String(new Date().getHours());
-  var path = 'cabinets/' + owner + '/stats/' + mlStDate();
-  var ref  = firebase.database().ref(path);
-  var INC  = firebase.database.ServerValue && firebase.database.ServerValue.increment
-    ? firebase.database.ServerValue.increment
-    : function(n){ return n; };
-
-  // Écriture atomique avec ServerValue.increment (pas de race condition)
-  var update = {};
-  update['c']      = INC(1);
-  update['d']      = INC(dur);
-  update['h/'+h]   = INC(1);
-  update['date']   = mlStDate();
-  update['lastAt'] = Date.now();
-
-  console.log('[ST] Record:', { owner: owner, dur: dur, h: h, path: path });
-
-  // Afficher "..." pendant le chargement
-  var _e1 = document.getElementById('mlSt1');
-  if (_e1 && _e1.textContent === '—') _e1.textContent = '...';
-
-  ref.update(update)
-    .then(function() {
-      mlStLoad();
-    })
-    .catch(function(err) {
-      var errMsg = err && (err.code || err.message) || 'inconnu';
-      // Afficher l'erreur dans la carte stats
-      var e1 = document.getElementById('mlSt1');
-      var e2 = document.getElementById('mlSt2');
-      var e3 = document.getElementById('mlSt3');
-      if (e1) { e1.textContent = 'ERR'; e1.title = errMsg; e1.style.fontSize='12px'; e1.style.color='#ef4444'; }
-      if (e2) { e2.textContent = errMsg.slice(0,15); e2.style.fontSize='10px'; e2.style.color='#ef4444'; }
-      if (e3) { e3.textContent = path; e3.style.fontSize='8px'; e3.style.color='#94a3b8'; }
-      // Fallback localStorage
-      try {
-        var key = 'ml_st_local_' + mlStDate();
-        var local = JSON.parse(localStorage.getItem(key) || '{"c":0,"d":0}');
-        local.c += 1; local.d += dur;
-        localStorage.setItem(key, JSON.stringify(local));
-        setTimeout(function() {
-          if (e1) { e1.textContent = local.c; e1.style.fontSize=''; e1.style.color=''; }
-          if (e2) { e2.textContent = local.c > 0 ? Math.round(local.d/local.c)+' min' : '—'; e2.style.fontSize=''; e2.style.color=''; }
-          if (e3) { e3.textContent = '—'; e3.style.fontSize=''; e3.style.color=''; }
-        }, 3000);
-      } catch(_) {}
-    });
+  if (owner && window.firebase) {
+    var path = 'cabinets/' + owner + '/stats/' + today;
+    var INC = (firebase.database.ServerValue && firebase.database.ServerValue.increment)
+      ? firebase.database.ServerValue.increment : null;
+    if (INC) {
+      var upd = {};
+      upd['c'] = INC(1); upd['d'] = INC(dur);
+      upd['h/' + h] = INC(1); upd['date'] = today;
+      firebase.database().ref(path).update(upd).catch(function(){});
+    }
+  }
 }
 
 window.mlStLoad   = mlStLoad;
