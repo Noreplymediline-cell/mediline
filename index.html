@@ -2283,6 +2283,26 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
         <div class="ml-cs-msg" id="mlCsMsg"></div>
       </div>
       <!-- ════════════════════════════════════════════════════════ -->
+      <!-- ══ STATISTIQUES DU JOUR ═══════════════════════════════ -->
+      <div id="mlStatsBox" style="background:#fff;border-radius:16px;padding:16px 18px;margin-bottom:14px;border:1.5px solid var(--border)">
+        <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--blue);margin-bottom:12px">📊 Statistiques du jour</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+          <div style="text-align:center;background:var(--bg);border-radius:10px;padding:10px 6px;border:1px solid var(--border)">
+            <div id="mlSt1" style="font-size:22px;font-weight:800;color:var(--navy)">—</div>
+            <div style="font-size:10px;color:var(--muted);font-weight:600;margin-top:2px">Consultations</div>
+          </div>
+          <div style="text-align:center;background:var(--bg);border-radius:10px;padding:10px 6px;border:1px solid var(--border)">
+            <div id="mlSt2" style="font-size:22px;font-weight:800;color:var(--navy)">—</div>
+            <div style="font-size:10px;color:var(--muted);font-weight:600;margin-top:2px">Durée moy.</div>
+          </div>
+          <div style="text-align:center;background:var(--bg);border-radius:10px;padding:10px 6px;border:1px solid var(--border)">
+            <div id="mlSt3" style="font-size:18px;font-weight:800;color:var(--navy)">—</div>
+            <div style="font-size:10px;color:var(--muted);font-weight:600;margin-top:2px">Heure pointe</div>
+          </div>
+        </div>
+      </div>
+      <!-- ════════════════════════════════════════════════════════ -->
+
       <div class="doc-divider"></div>
       <button class="doc-btn doc-btn-ghost" onclick="docLogout()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -8365,6 +8385,7 @@ async function dmInitSection() {
 
   dmRenderPlanInfo();
   setTimeout(function(){ if(typeof mlCsLoad==="function") mlCsLoad(); }, 400);
+  setTimeout(function(){ if(typeof mlStLoad==="function") mlStLoad(); }, 500);
 
   dmLoadAndRender();
 }
@@ -9957,25 +9978,6 @@ function mlKeepAlive() {
     }, 60000);
   };
 
-  window.namedPatientAction = async function(patId, action) {
-    var docId = normalizeDoctorId(docCurrentUser);
-    if (!docId || !patId) return;
-    var ref = db().ref('namedPatients/' + docId + '/' + patId);
-    try {
-      if (action === 'passed') {
-        await ref.update({ status:'passed', statut:'passed', passedAt: Date.now(), updatedAt: Date.now() });
-        setTimeout(function(){ ref.remove().catch(function(){}); }, 2 * 60 * 1000);
-        // Enregistrer la stat immédiatement
-        if (typeof showToast === 'function') showToast('✅ Patient marqué passé', 'green');
-      } else {
-        await ref.remove();
-        if (typeof showToast === 'function') showToast(action === 'absent' ? '⚠️ Patient marqué absent' : '🗑 Patient supprimé');
-      }
-    } catch(e) {
-      ML.warn('namedPatientAction', e);
-      if (typeof showToast === 'function') showToast('❌ Action impossible', 'red');
-    }
-  };
 
   // Petit diagnostic visible dans la console pour éviter les fausses corrections.
   window.mlDiagnostic = async function() {
@@ -11240,44 +11242,6 @@ window.checkPromo = function() {
     });
   };
 
-  // Patient passé : statut passé 2 min + baisse automatique d'une consultation dans queue.
-  window.namedPatientAction = async function(patId, action){
-    var uid=norm(window.docCurrentUser || authUid());
-    if(!uid||!patId||!db()) return;
-    var patientRef=db().ref('namedPatients/'+uid+'/'+patId);
-    try{
-      if(action==='passed'){
-        var d=duree();
-        await patientRef.update({ status:'passed', statut:'passed', passedAt:Date.now(), updatedAt:Date.now() });
-        await qref(uid).transaction(function(q){
-          q=q||{};
-          var p=Number(q.p ?? q.patients ?? window.docPatients ?? 0);
-          var r=Number(q.r ?? q.retard ?? window.docRetard ?? 0);
-          p=Math.max(0,p-1);
-          var total=Number(q.totalMinutes ?? q.total ?? (p*d+r));
-          total=Math.max(0,total-d);
-          r=Math.max(0,r-d);
-          q.p=p; q.patients=p; q.r=r; q.retard=r; q.total=total; q.totalMinutes=total; q.duree=d; q.updatedAt=Date.now(); q.ts=Date.now();
-          return q;
-        });
-        window.docPatients=Math.max(0, Number(window.docPatients||0)-1);
-        window.docRetard=Math.max(0, Number(window.docRetard||0)-d);
-        try{ window.docUpdate && window.docUpdate(); }catch(e){}
-        setTimeout(function(){ patientRef.remove().catch(function(){}); }, 120000);
-        if(typeof showToast==='function') showToast('✅ Patient passé · temps retiré automatiquement','green');
-      } else if(action==='absent'){
-        await patientRef.update({ status:'absent', statut:'absent', absentAt:Date.now(), updatedAt:Date.now() });
-        setTimeout(function(){ patientRef.remove().catch(function(){}); }, 120000);
-        if(typeof showToast==='function') showToast('⚠️ Patient marqué absent');
-      } else {
-        await patientRef.remove();
-        if(typeof showToast==='function') showToast('🗑 Patient supprimé');
-      }
-    }catch(e){
-      console.warn('[ML v7.3] namedPatientAction error', e);
-      if(typeof showToast==='function') showToast('❌ Action indisponible. Réessayez ou rechargez la page.','red');
-    }
-  };
 })();
 </script>
 
@@ -11689,6 +11653,7 @@ window.checkPromo = function() {
         try{ window.docUpdate&&window.docUpdate(); }catch(e){}
         setTimeout(function(){ patRef.remove().catch(function(){}); },120000);
         if(typeof showToast==='function') showToast('✅ Patient passé · temps retiré','green');
+        if(typeof mlStRecord==='function') mlStRecord(d);
       }else if(action==='absent'){
         await patRef.update({status:'absent',statut:'absent',absentAt:now(),updatedAt:now()});
         setTimeout(function(){ patRef.remove().catch(function(){}); },120000);
@@ -11774,6 +11739,78 @@ window.checkPromo = function() {
 })();
 
 
+
+
+/* ═══════════════════════════════════════════════════
+   STATS CABINET — lecture simple, chemin cabinets/
+   Pas de listener temps réel, juste une lecture
+   ═══════════════════════════════════════════════════ */
+
+function mlStDate() {
+  var d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+function mlStOwner() {
+  var uid = window.docCurrentUser;
+  if (!uid) return null;
+  try {
+    var u = (JSON.parse(localStorage.getItem('users')||'{}'))[uid] || window._lastDocData || {};
+    var o = u.billingOwner || u.invitedBy || u.addedBy || null;
+    if (o && o !== uid) return o;
+  } catch(e) {}
+  return uid;
+}
+
+function mlStShow(data) {
+  var box = document.getElementById('mlStatsBox');
+  if (!box) return;
+  box.style.display = 'block';
+  var count = data ? (data.c || 0) : 0;
+  var totDur = data ? (data.d || 0) : 0;
+  var hours  = data ? (data.h || {}) : {};
+  var avg    = count > 0 ? Math.round(totDur/count) : 0;
+  var peakH  = -1, peakV = 0;
+  Object.keys(hours).forEach(function(h){
+    if (Number(hours[h]) > peakV) { peakV = Number(hours[h]); peakH = Number(h); }
+  });
+  var e1 = document.getElementById('mlSt1');
+  var e2 = document.getElementById('mlSt2');
+  var e3 = document.getElementById('mlSt3');
+  if (e1) e1.textContent = count;
+  if (e2) e2.textContent = avg > 0 ? avg+' min' : '—';
+  if (e3) e3.textContent = peakH >= 0 ? peakH+'h' : '—';
+}
+
+async function mlStLoad() {
+  var owner = mlStOwner();
+  if (!owner || !window.firebase) return;
+  var path = 'cabinets/'+owner+'/stats/'+mlStDate();
+  try {
+    var snap = await firebase.database().ref(path).once('value');
+    mlStShow(snap && snap.exists() ? snap.val() : null);
+  } catch(e) { console.warn('[ST]', e.message); }
+}
+
+function mlStRecord(durMin) {
+  var owner = mlStOwner();
+  if (!owner || !window.firebase) return;
+  var h = new Date().getHours();
+  var path = 'cabinets/'+owner+'/stats/'+mlStDate();
+  firebase.database().ref(path).transaction(function(s) {
+    s = s || { c:0, d:0, h:{} };
+    s.c = (s.c||0)+1;
+    s.d = (s.d||0)+(Number(durMin)||15);
+    s.h = s.h||{};
+    s.h[String(h)] = (s.h[String(h)]||0)+1;
+    return s;
+  }, function(err, ok) {
+    if (!err && ok) mlStLoad();
+  });
+}
+
+window.mlStLoad   = mlStLoad;
+window.mlStRecord = mlStRecord;
 
 </script>
 
