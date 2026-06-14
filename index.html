@@ -1050,24 +1050,6 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
   .btn-nav-patient{display:none}
 }
 
-/* ── Statistiques cabinet ─────────────────────────────────────────── */
-.ml-stats-section{background:#fff;border-radius:16px;padding:18px;margin-bottom:14px;border:1.5px solid var(--border)}
-.ml-stats-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--blue);margin-bottom:14px;display:flex;align-items:center;gap:6px}
-.ml-stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
-.ml-stat-card{background:var(--bg);border-radius:12px;padding:12px 10px;text-align:center;border:1px solid var(--border)}
-.ml-stat-card-val{font-size:22px;font-weight:800;color:var(--navy);line-height:1}
-.ml-stat-card-label{font-size:10px;color:var(--muted);margin-top:4px;font-weight:600}
-.ml-chart-wrap{margin-top:4px}
-.ml-chart-label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
-.ml-bar-chart{display:flex;align-items:flex-end;gap:4px;height:60px;padding:0 2px}
-.ml-bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px}
-.ml-bar{width:100%;border-radius:4px 4px 0 0;background:var(--blue);min-height:3px;transition:height .3s}
-.ml-bar.today{background:#2563eb}
-.ml-bar.low{background:#bfdbfe}
-.ml-bar-day{font-size:8px;color:var(--muted);font-weight:700}
-.ml-stats-toggle{font-size:11px;color:var(--blue);cursor:pointer;font-weight:700;margin-left:auto;opacity:.8}
-.ml-stats-toggle:hover{opacity:1}
-@media(max-width:360px){.ml-stats-grid{grid-template-columns:repeat(2,1fr)}}
 
 /* ── Portail Stripe ───────────────────────────────────────────────── */
 .ml-portal-btn{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:9px 16px;border-radius:10px;border:1.5px solid #e0e7ff;background:#f5f7ff;color:#3730a3;font-size:12px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;transition:all .18s;width:100%;justify-content:center}
@@ -2231,42 +2213,7 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
       <!-- ═══════════════════════════════════════════════════════ -->
 
 
-      <!-- ═══════════ STATISTIQUES CABINET ═══════════════════════ -->
-      <div class="ml-stats-section" id="mlStatsSection">
-        <div class="ml-stats-title">
-          📊 Statistiques du cabinet
-          <button class="ml-stats-toggle" id="mlStatsToggleBtn" onclick="mlStatsToggleDetail()" type="button" style="background:none;border:none;cursor:pointer;font:inherit;color:inherit;padding:0">Voir détails ▾</button>
-        </div>
-        <div class="ml-stats-grid">
-          <div class="ml-stat-card">
-            <div class="ml-stat-card-val" id="mlStatConsultToday">—</div>
-            <div class="ml-stat-card-label">Consultations aujourd'hui</div>
-          </div>
-          <div class="ml-stat-card">
-            <div class="ml-stat-card-val" id="mlStatAvgWait">—</div>
-            <div class="ml-stat-card-label">Durée moy. consultation</div>
-          </div>
-          <div class="ml-stat-card">
-            <div class="ml-stat-card-val" id="mlStatPeakHour">—</div>
-            <div class="ml-stat-card-label">Heure de pointe</div>
-          </div>
-        </div>
-        <div id="mlStatsDetail" style="display:none">
-          <div class="ml-chart-wrap">
-            <div class="ml-chart-label">Consultations — 7 derniers jours</div>
-            <div class="ml-bar-chart" id="mlBarChart"></div>
-          </div>
-          <div style="margin-top:14px">
-            <div class="ml-chart-label">Durée moy. par consultation</div>
-            <div id="mlAvgDurText" style="font-size:13px;color:var(--navy);font-weight:700;padding:4px 0">—</div>
-          </div>
-          <div style="margin-top:10px">
-            <div class="ml-chart-label">Total consultations (30 jours)</div>
-            <div id="mlTotal30Text" style="font-size:13px;color:var(--navy);font-weight:700;padding:4px 0">—</div>
-          </div>
-        </div>
-      </div>
-      <!-- ════════════════════════════════════════════════════════ -->
+
       <!-- ══ STATISTIQUES DU CABINET ════════════════════════════ -->
       <div id="mlStatsSection" style="background:#fff;border-radius:16px;padding:18px;margin-bottom:14px;border:1.5px solid var(--border);display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
