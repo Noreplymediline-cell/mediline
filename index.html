@@ -5,13 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MediLine — La salle d'attente intelligente</title>
 <meta name="description" content="MediLine affiche le temps d'attente de votre cabinet en temps réel. Zéro application patient. Opérationnel en 2 minutes.">
-<meta name="theme-color" content="#1d4ed8">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="MediLine">
-<link rel="manifest" href="/manifest.json">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://js.stripe.com/v3/"></script>
@@ -2402,7 +2395,6 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
           <label>Heure de rendez-vous</label>
           <input type="time" id="patRegHeure">
         </div>
-
         <div class="pat-reg-field" id="patRegDocField" style="display:none">
           <label>Médecin</label>
           <select id="patRegDoc"></select>
@@ -8882,33 +8874,6 @@ function buildInviteHtml(name, email, cabinetCode, inviteLink) {
 
 
 
-<script>
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function() {
-    navigator.serviceWorker.register('/sw.js')
-      .then(function(reg) { console.log('[PWA] Service worker enregistré:', reg.scope); })
-      .catch(function(e) { console.warn('[PWA] SW échec:', e); });
-  });
-}
-
-// Mode standalone PWA (lancé depuis l'écran d'accueil)
-// Agit immédiatement avant le rendu pour éviter le flash landing
-(function() {
-  var isStandalone = window.matchMedia('(display-mode: standalone)').matches
-    || window.navigator.standalone === true;
-  if (!isStandalone) return;
-
-  // Masquer la landing immédiatement, afficher doctor
-  document.addEventListener('DOMContentLoaded', function() {
-    var landing = document.getElementById('page-landing');
-    var doctor  = document.getElementById('page-doctor');
-    if (landing) { landing.classList.remove('active'); landing.style.display = 'none'; }
-    if (doctor)  { doctor.classList.add('active'); }
-    console.log('[PWA] Standalone → page login directe');
-    // Si session existante → onAuthStateChanged prend la main
-  });
-})();
-</script>
 </body></html>`;
 }
 
@@ -9886,10 +9851,6 @@ function mlKeepAlive() {
 
       var form = document.getElementById('patRegisterForm');
       var personal = document.getElementById('patPersonalView');
-      // Demander permission notifications pour être prévenu
-      if (typeof mlPushRequestPermission === 'function') {
-        mlPushRequestPermission().catch(function(){});
-      }
       if (form) form.style.display = 'none';
       if (personal) personal.style.display = 'block';
 
@@ -11714,8 +11675,6 @@ window.checkPromo = function() {
         try{ window.docUpdate&&window.docUpdate(); }catch(e){}
         setTimeout(function(){ patRef.remove().catch(function(){}); },120000);
         if(typeof showToast==='function') showToast('✅ Patient passé · temps retiré','green');
-        // Notification push au patient suivant
-        if (typeof mlPushNotifyNextPatient === 'function') mlPushNotifyNextPatient(owner).catch(function(){});
       }else if(action==='absent'){
         await patRef.update({status:'absent',statut:'absent',absentAt:now(),updatedAt:now()});
         setTimeout(function(){ patRef.remove().catch(function(){}); },120000);
@@ -11800,80 +11759,6 @@ window.checkPromo = function() {
 
 })();
 
-
-
-
-
-/* ═══════════════════════════════════════════════════════════════
-   NOTIFICATIONS PUSH — Web Push API (gratuit, natif)
-   Le patient accepte les notifications → reçoit une alerte quand c'est son tour
-   ═══════════════════════════════════════════════════════════════ */
-
-// Demander la permission aux notifications quand le patient s'enregistre
-async function mlPushRequestPermission() {
-  if (!('Notification' in window) || !('serviceWorker' in navigator)) return false;
-  if (Notification.permission === 'granted') return true;
-  if (Notification.permission === 'denied') return false;
-  var perm = await Notification.requestPermission();
-  return perm === 'granted';
-}
-
-// Envoyer une notification locale (pas besoin de serveur push)
-// Fonctionne même depuis l'onglet actif
-async function mlPushNotifyNextPatient(doctorId) {
-  if (!('Notification' in window)) return;
-  if (!window.firebase) return;
-
-  try {
-    var snap = await firebase.database().ref('namedPatients/' + doctorId).once('value');
-    if (!snap || !snap.exists()) return;
-
-    var patients = Object.values(snap.val() || {});
-    var waiting = patients
-      .filter(function(p) { return p.status === 'waiting' || p.statut === 'waiting'; })
-      .sort(function(a, b) {
-        var ha = a.heureRdv || a.appointmentTime || '';
-        var hb = b.heureRdv || b.appointmentTime || '';
-        return ha.localeCompare(hb);
-      });
-
-    if (!waiting.length) return;
-    var next = waiting[0];
-    var nom = next.nom || next.name || 'patient';
-
-    console.log('[PUSH] Notification au suivant:', nom);
-
-    // Notification via Service Worker (fonctionne en arrière-plan)
-    if ('serviceWorker' in navigator) {
-      var reg = await navigator.serviceWorker.ready;
-      if (reg && reg.showNotification) {
-        await reg.showNotification('🏥 MediLine — C\'est votre tour !', {
-          body   : 'Bonjour ' + nom + ', le médecin est prêt à vous recevoir.',
-          icon   : '/icon-192.png',
-          badge  : '/icon-192.png',
-          tag    : 'mediline-tour-' + next.id,
-          vibrate: [200, 100, 200]
-        });
-        console.log('[PUSH] Notification envoyée à', nom);
-        return;
-      }
-    }
-
-    // Fallback : notification directe (si onglet actif)
-    if (Notification.permission === 'granted') {
-      new Notification('🏥 MediLine — C\'est votre tour !', {
-        body : 'Bonjour ' + nom + ', le médecin est prêt à vous recevoir.',
-        icon : '/icon-192.png',
-        tag  : 'mediline-tour'
-      });
-    }
-  } catch(e) {
-    console.warn('[PUSH] Erreur:', e.message || e);
-  }
-}
-
-// Exposer globalement
-window.mlPushNotifyNextPatient = mlPushNotifyNextPatient;
 
 </script>
 
