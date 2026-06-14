@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MediLine — La salle d'attente intelligente</title>
 <meta name="description" content="MediLine affiche le temps d'attente de votre cabinet en temps réel. Zéro application patient. Opérationnel en 2 minutes.">
+<meta name="theme-color" content="#1d4ed8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="MediLine">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://js.stripe.com/v3/"></script>
@@ -2394,6 +2401,10 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
         <div class="pat-reg-field">
           <label>Heure de rendez-vous</label>
           <input type="time" id="patRegHeure">
+        </div>
+        <div class="pat-reg-field">
+          <label>Téléphone <span style="font-weight:400;color:var(--muted)">(optionnel — pour être prévenu de votre tour)</span></label>
+          <input type="tel" id="patRegPhone" placeholder="06 12 34 56 78" autocomplete="tel">
         </div>
         <div class="pat-reg-field" id="patRegDocField" style="display:none">
           <label>Médecin</label>
@@ -8874,6 +8885,15 @@ function buildInviteHtml(name, email, cabinetCode, inviteLink) {
 
 
 
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('/sw.js')
+      .then(function(reg) { console.log('[PWA] Service worker enregistré:', reg.scope); })
+      .catch(function(e) { console.warn('[PWA] SW échec:', e); });
+  });
+}
+</script>
 </body></html>`;
 }
 
@@ -9812,12 +9832,16 @@ function mlKeepAlive() {
     if (!selectedDoctorId) { if (msg) msg.textContent = 'Erreur : médecin non sélectionné.'; return; }
 
     var patientId = 'pat_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
+    var phoneEl = document.getElementById('patRegPhone');
+    var phone = (phoneEl && phoneEl.value || '').trim().replace(/\s/g, '');
+
     var patient = {
       id: patientId,
       doctorId: selectedDoctorId,
       cabinetId: patCurrentCabinetCode || '',
       nom: nom,
       name: nom,
+      phone: phone || null,
       heureRdv: heure,
       appointmentTime: heure,
       heureArrivee: nowHHMM(),
@@ -11675,6 +11699,8 @@ window.checkPromo = function() {
         try{ window.docUpdate&&window.docUpdate(); }catch(e){}
         setTimeout(function(){ patRef.remove().catch(function(){}); },120000);
         if(typeof showToast==='function') showToast('✅ Patient passé · temps retiré','green');
+        // SMS au patient suivant
+        if (typeof mlSmsSendNextPatient === 'function') mlSmsSendNextPatient(owner).catch(function(){});
       }else if(action==='absent'){
         await patRef.update({status:'absent',statut:'absent',absentAt:now(),updatedAt:now()});
         setTimeout(function(){ patRef.remove().catch(function(){}); },120000);
@@ -11759,6 +11785,61 @@ window.checkPromo = function() {
 
 })();
 
+
+
+/* ═══════════════════════════════════════════════════════════════
+   SMS PATIENTS — Notification au prochain patient via Twilio
+   Worker : /api/send-sms
+   Déclenché quand le médecin marque un patient comme "Passé"
+   ═══════════════════════════════════════════════════════════════ */
+
+async function mlSmsSendNextPatient(doctorId) {
+  if (!doctorId || !window.firebase) return;
+
+  try {
+    // Lire la liste des patients en attente pour ce médecin
+    var snap = await firebase.database().ref('namedPatients/' + doctorId).once('value');
+    if (!snap || !snap.exists()) return;
+
+    var patients = Object.values(snap.val() || {});
+    // Filtrer : uniquement en attente, triés par heure RDV
+    var waiting = patients
+      .filter(function(p) { return p.status === 'waiting' || p.statut === 'waiting'; })
+      .filter(function(p) { return p.phone; }) // uniquement ceux avec un téléphone
+      .sort(function(a, b) {
+        var ha = a.heureRdv || a.appointmentTime || '';
+        var hb = b.heureRdv || b.appointmentTime || '';
+        return ha.localeCompare(hb);
+      });
+
+    if (!waiting.length) return; // personne avec téléphone en attente
+
+    // Prendre le premier patient avec téléphone
+    var next = waiting[0];
+    var phone = next.phone;
+    var nom = next.nom || next.name || 'patient';
+
+    console.log('[SMS] Envoi au suivant:', nom, '|', phone);
+
+    var res = await fetch('/api/send-sms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: phone,
+        message: 'MediLine — Bonjour ' + nom + ', c\'est bientôt votre tour ! Votre médecin vous recevra dans quelques minutes.'
+      })
+    });
+
+    var data = await res.json().catch(function() { return {}; });
+    if (data.ok) {
+      console.log('[SMS] OK — sid:', data.sid, '| destinataire:', nom);
+    } else {
+      console.warn('[SMS] Échec:', data.error || 'inconnu');
+    }
+  } catch(e) {
+    console.warn('[SMS] Erreur:', e.message || e);
+  }
+}
 
 </script>
 
