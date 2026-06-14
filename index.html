@@ -8890,6 +8890,27 @@ if ('serviceWorker' in navigator) {
       .catch(function(e) { console.warn('[PWA] SW échec:', e); });
   });
 }
+
+// Mode standalone PWA (lancé depuis l'écran d'accueil)
+// → afficher directement la page de connexion, pas la landing
+(function() {
+  var isStandalone = window.matchMedia('(display-mode: standalone)').matches
+    || window.navigator.standalone === true;
+  if (!isStandalone) return;
+
+  // Attendre que le DOM soit prêt et Firebase initialisé
+  window.addEventListener('load', function() {
+    setTimeout(function() {
+      // Si déjà connecté → onAuthStateChanged gère tout
+      // Si pas connecté → aller sur la page doctor (login)
+      var session = localStorage.getItem('ml_session');
+      if (!session) {
+        if (typeof showPage === 'function') showPage('doctor');
+        console.log('[PWA] Standalone → page login');
+      }
+    }, 300);
+  });
+})();
 </script>
 </body></html>`;
 }
