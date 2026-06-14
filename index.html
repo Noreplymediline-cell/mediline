@@ -8327,8 +8327,10 @@ async function dmInitSection() {
 
   // ── Décision basée sur le rôle réel ─────────────────────────────────
   if (isInvitedDoctor(userData, docCurrentUser)) {
-    // Médecin invité : masquer COMPLÈTEMENT la section
+    // Médecin invité : masquer la gestion médecins ET la personnalisation
     section.style.display = 'none';
+    var csSection = document.getElementById('mlCsSection');
+    if (csSection) csSection.style.display = 'none';
     return;
   }
 
