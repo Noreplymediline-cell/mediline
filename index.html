@@ -11792,25 +11792,65 @@ async function mlStLoad() {
   var path = 'cabinets/'+owner+'/stats/'+mlStDate();
   try {
     var snap = await firebase.database().ref(path).once('value');
-    mlStShow(snap && snap.exists() ? snap.val() : null);
-  } catch(e) { console.warn('[ST]', e.message); }
+    var data = snap && snap.exists() ? snap.val() : null;
+    // Fusionner avec localStorage si Firebase vide
+    if (!data || !data.c) {
+      var key = 'ml_st_local_' + mlStDate();
+      var local = JSON.parse(localStorage.getItem(key) || 'null');
+      if (local && local.c > 0) data = local;
+    }
+    mlStShow(data);
+  } catch(e) {
+    console.warn('[ST]', e.message);
+    // Afficher depuis localStorage
+    var key2 = 'ml_st_local_' + mlStDate();
+    var local2 = JSON.parse(localStorage.getItem(key2) || 'null');
+    mlStShow(local2);
+  }
 }
 
 function mlStRecord(durMin) {
   var owner = mlStOwner();
   if (!owner || !window.firebase) return;
-  var h = new Date().getHours();
-  var path = 'cabinets/'+owner+'/stats/'+mlStDate();
-  firebase.database().ref(path).transaction(function(s) {
-    s = s || { c:0, d:0, h:{} };
-    s.c = (s.c||0)+1;
-    s.d = (s.d||0)+(Number(durMin)||15);
-    s.h = s.h||{};
-    s.h[String(h)] = (s.h[String(h)]||0)+1;
-    return s;
-  }, function(err, ok) {
-    if (!err && ok) mlStLoad();
-  });
+  var dur = Math.max(1, Number(durMin) || Number(window.docDuree) || 15);
+  var h   = String(new Date().getHours());
+  var path = 'cabinets/' + owner + '/stats/' + mlStDate();
+  var ref  = firebase.database().ref(path);
+  var INC  = firebase.database.ServerValue && firebase.database.ServerValue.increment
+    ? firebase.database.ServerValue.increment
+    : function(n){ return n; };
+
+  // Écriture atomique avec ServerValue.increment (pas de race condition)
+  var update = {};
+  update['c']      = INC(1);
+  update['d']      = INC(dur);
+  update['h/'+h]   = INC(1);
+  update['date']   = mlStDate();
+  update['lastAt'] = Date.now();
+
+  console.log('[ST] Record:', { owner: owner, dur: dur, h: h, path: path });
+
+  ref.update(update)
+    .then(function() {
+      console.log('[ST] OK');
+      mlStLoad();
+    })
+    .catch(function(e) {
+      console.error('[ST] Erreur Firebase:', e.code || e.message);
+      // Fallback local si Firebase refuse
+      try {
+        var key = 'ml_st_local_' + mlStDate();
+        var local = JSON.parse(localStorage.getItem(key) || '{"c":0,"d":0}');
+        local.c += 1;
+        local.d += dur;
+        localStorage.setItem(key, JSON.stringify(local));
+        // Afficher depuis localStorage
+        var e1 = document.getElementById('mlSt1');
+        var e2 = document.getElementById('mlSt2');
+        if (e1) e1.textContent = local.c;
+        if (e2) e2.textContent = local.c > 0 ? Math.round(local.d/local.c)+' min' : '—';
+      } catch(_) {}
+    });
 }
 
 window.mlStLoad   = mlStLoad;
