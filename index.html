@@ -3855,37 +3855,37 @@ function waitForEmailJS(callback, maxWait) {
 }
 
 async function sendEmailResend(to, subject, htmlBody, type) {
-  // Le nom de fonction reste pareil pour ne rien casser dans le SaaS.
-  // Mais l'envoi passe maintenant par EmailJS.
+  // Envoi uniquement via Cloudflare Worker /api/send-email → Resend
+  let payload = { to, type };
 
-  // Attendre que EmailJS soit chargé (jusqu'à 5s)
-  if (typeof emailjs === 'undefined') {
-    await new Promise(function(resolve) { waitForEmailJS(resolve, 5000); });
-  }
-  if (!initEmailJS()) return false;
-
-  let templateId = EMAILJS_TEMPLATE_RESET_ID;
-  const params = { email: to };
-
-  if (type === 'verification') {
-    templateId = EMAILJS_TEMPLATE_CODE_ID;
+  if (type === 'verification' || type === 'otp') {
     const m = String(subject || '').match(/(\d{6})/);
-    params.code = m ? m[1] : '';
+    payload.code = m ? m[1] : '';
+    payload.type = 'otp';
   } else if (type === 'reset') {
-    templateId = EMAILJS_TEMPLATE_RESET_ID;
     const m = String(htmlBody || '').match(/href=["']([^"']+)["']/i);
-    params.link = m ? m[1] : '';
+    payload.link = m ? m[1] : String(htmlBody || '');
+    payload.type = 'reset';
   } else {
-    // Pas de template bienvenue configuré : on ne bloque pas l'app.
-    return true;
+    return true; // bienvenue / autre → pas bloquant
   }
 
+  // URL en dur — ML_EMAIL_API_URL déclaré plus bas, const non hoisté
   try {
-    await emailjs.send(EMAILJS_SERVICE_ID, templateId, params);
-    console.log('[MediLine] EmailJS envoyé:', type, to);
-    return true;
-  } catch (e) {
-    console.error('[MediLine] Erreur EmailJS:', e);
+    const res = await fetch('/api/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.ok) {
+      console.log('[OTP] Email envoyé — id:', data.id, '| to:', to);
+      return true;
+    }
+    console.error('[OTP] Échec Resend — HTTP', res.status, '| erreur:', data.error || JSON.stringify(data));
+    return false;
+  } catch(e) {
+    console.error('[OTP] Fetch erreur:', e.message);
     return false;
   }
 }
