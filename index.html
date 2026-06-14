@@ -8892,23 +8892,20 @@ if ('serviceWorker' in navigator) {
 }
 
 // Mode standalone PWA (lancé depuis l'écran d'accueil)
-// → afficher directement la page de connexion, pas la landing
+// Agit immédiatement avant le rendu pour éviter le flash landing
 (function() {
   var isStandalone = window.matchMedia('(display-mode: standalone)').matches
     || window.navigator.standalone === true;
   if (!isStandalone) return;
 
-  // Attendre que le DOM soit prêt et Firebase initialisé
-  window.addEventListener('load', function() {
-    setTimeout(function() {
-      // Si déjà connecté → onAuthStateChanged gère tout
-      // Si pas connecté → aller sur la page doctor (login)
-      var session = localStorage.getItem('ml_session');
-      if (!session) {
-        if (typeof showPage === 'function') showPage('doctor');
-        console.log('[PWA] Standalone → page login');
-      }
-    }, 300);
+  // Masquer la landing immédiatement, afficher doctor
+  document.addEventListener('DOMContentLoaded', function() {
+    var landing = document.getElementById('page-landing');
+    var doctor  = document.getElementById('page-doctor');
+    if (landing) { landing.classList.remove('active'); landing.style.display = 'none'; }
+    if (doctor)  { doctor.classList.add('active'); }
+    console.log('[PWA] Standalone → page login directe');
+    // Si session existante → onAuthStateChanged prend la main
   });
 })();
 </script>
