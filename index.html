@@ -2214,33 +2214,6 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
 
 
 
-      <!-- ══ STATISTIQUES DU CABINET ════════════════════════════ -->
-      <div id="mlStatsSection" style="background:#fff;border-radius:16px;padding:18px;margin-bottom:14px;border:1.5px solid var(--border);display:none">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--blue)">📊 Statistiques du jour</div>
-          <button id="mlStatsToggleBtn" onclick="mlStatsToggle()" type="button" style="background:none;border:none;font-size:11px;font-weight:700;color:var(--blue);cursor:pointer;padding:0">Voir détails ▾</button>
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:0">
-          <div style="background:var(--bg);border-radius:12px;padding:12px 8px;text-align:center;border:1px solid var(--border)">
-            <div id="mlStatCount" style="font-size:24px;font-weight:800;color:var(--navy)">0</div>
-            <div style="font-size:10px;color:var(--muted);font-weight:600;margin-top:3px">Consultations</div>
-          </div>
-          <div style="background:var(--bg);border-radius:12px;padding:12px 8px;text-align:center;border:1px solid var(--border)">
-            <div id="mlStatAvg" style="font-size:24px;font-weight:800;color:var(--navy)">—</div>
-            <div style="font-size:10px;color:var(--muted);font-weight:600;margin-top:3px">Durée moy.</div>
-          </div>
-          <div style="background:var(--bg);border-radius:12px;padding:12px 8px;text-align:center;border:1px solid var(--border)">
-            <div id="mlStatPeak" style="font-size:18px;font-weight:800;color:var(--navy)">—</div>
-            <div style="font-size:10px;color:var(--muted);font-weight:600;margin-top:3px">Heure pointe</div>
-          </div>
-        </div>
-        <div id="mlStatsDetail" style="display:none;margin-top:14px">
-          <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Répartition par heure</div>
-          <div id="mlStatsChart" style="display:flex;align-items:flex-end;gap:3px;height:60px;padding:0 2px"></div>
-        </div>
-      </div>
-      <!-- ═══════════════════════════════════════════════════════════ -->
-
       <!-- ══ PERSONNALISATION PAGE CABINET ══════════════════════ -->
       <div class="ml-cs" id="mlCsSection">
         <div class="ml-cs-title">🎨 Page cabinet (vue patients)</div>
@@ -4806,7 +4779,6 @@ function docRemove() {
   } catch {}
   // Réinitialiser le type après consultation terminée
   setConsultType('normale');
-  if (typeof mlStatsRecord === 'function') mlStatsRecord(window.docDuree || 15);
   docSave(true); docUpdate(); // true = reset startedAt (action réelle)
   showToast('✅ Consultation terminée');
 }
@@ -6505,12 +6477,6 @@ function namedPatientAction(patId, action) {
   }
 
   // Enregistrer la stat au moment exact où le patient est marqué passé
-  if (action === 'passed' && typeof mlStatsRecordConsult === 'function') {
-    var _dur = window.docDuree || 15;
-    console.log('CONSULTATION_TERMINEE_CLICK', { source: 'namedPatientAction', patId: patId, dur: _dur, cabinetId: mlStatsGetCabinetId ? mlStatsGetCabinetId() : 'N/A' });
-    mlStatsRecordConsult(_dur);
-  }
-
   // Suppression Firebase — le listener on('value') met à jour l'écran sur tous les appareils.
   // Ne pas toucher docPatients, ne pas appeler docSave, ne pas appeler docUpdate.
   firebase.database().ref('namedPatients/' + docCurrentUser + '/' + patId)
@@ -8387,12 +8353,7 @@ async function dmInitSection() {
 
   dmRenderPlanInfo();
   setTimeout(function(){ if(typeof mlCsLoad==="function") mlCsLoad(); }, 400);
-  setTimeout(function(){ if(typeof mlStatsStartListener==="function") mlStatsStartListener(); }, 600);
 
-  // Charger les statistiques (module additif — ne modifie rien d'existant)
-  setTimeout(function() {
-    if (typeof mlStatsRender === 'function') mlStatsRender().catch(function(){});
-  }, 800);
   dmLoadAndRender();
 }
 
@@ -9991,8 +9952,6 @@ function mlKeepAlive() {
         await ref.update({ status:'passed', statut:'passed', passedAt: Date.now(), updatedAt: Date.now() });
         setTimeout(function(){ ref.remove().catch(function(){}); }, 2 * 60 * 1000);
         // Enregistrer la stat immédiatement
-        console.log('CONSULTATION_TERMINEE_CLICK', { source: 'v8_namedPatientAction', patId: patId, dur: window.docDuree || 15, cabinetId: mlStatsGetCabinetId ? mlStatsGetCabinetId() : 'N/A' });
-        if (typeof mlStatsRecordConsult === 'function') mlStatsRecordConsult(window.docDuree || 15);
         if (typeof showToast === 'function') showToast('✅ Patient marqué passé', 'green');
       } else {
         await ref.remove();
@@ -11711,8 +11670,6 @@ window.checkPromo = function() {
           q.p=p;q.patients=p;q.r=r;q.retard=r;q.total=total;q.totalMinutes=total;q.duree=d;q.updatedAt=now();q.ts=now();
           return q;
         });
-        // Enregistrer la stat
-        if (typeof mlStatsRecord === 'function') mlStatsRecord(d);
         window.docPatients=Math.max(0,Number(window.docPatients||0)-1);
         window.docRetard=Math.max(0,Number(window.docRetard||0)-d);
         try{ window.docUpdate&&window.docUpdate(); }catch(e){}
@@ -11802,125 +11759,6 @@ window.checkPromo = function() {
 
 })();
 
-/* ═══════════════════════════════════════════════════════════════
-   STATISTIQUES — stockage cabinets/{uid}/stats/{YYYY-MM-DD}
-   Autorisé par les règles Firebase existantes (chemin cabinets/).
-   ═══════════════════════════════════════════════════════════════ */
-
-// ── Date du jour ─────────────────────────────────────────────────
-function mlStatsDate() {
-  var d = new Date();
-  return d.getFullYear() + '-' +
-    String(d.getMonth()+1).padStart(2,'0') + '-' +
-    String(d.getDate()).padStart(2,'0');
-}
-
-// ── UID owner (invité → owner du cabinet) ────────────────────────
-function mlStatsOwnerUid() {
-  var uid = window.docCurrentUser || localStorage.getItem('ml_session');
-  if (!uid) return null;
-  try {
-    var u = (JSON.parse(localStorage.getItem('users')||'{}'))[uid] || window._lastDocData || {};
-    var owner = u.billingOwner || u.invitedBy || u.addedBy || null;
-    if (owner && owner !== uid) return owner;
-  } catch(e) {}
-  return uid;
-}
-
-// ── Enregistrer une consultation ─────────────────────────────────
-function mlStatsRecord(durationMin) {
-  var ownerUid = mlStatsOwnerUid();
-  if (!ownerUid || !window.firebase) return;
-  var dur  = Math.max(1, Number(durationMin) || Number(window.docDuree) || 15);
-  var hour = new Date().getHours();
-  var path = 'cabinets/' + ownerUid + '/stats/' + mlStatsDate();
-  firebase.database().ref(path).transaction(function(s) {
-    s = s || { consultations: 0, totalDuration: 0, hours: {} };
-    s.consultations = (s.consultations || 0) + 1;
-    s.totalDuration = (s.totalDuration || 0) + dur;
-    s.hours = s.hours || {};
-    s.hours[String(hour)] = (s.hours[String(hour)] || 0) + 1;
-    s.lastAt = Date.now();
-    return s;
-  }, function(err, committed) {
-    if (err) {
-      console.error('[STATS] Erreur Firebase:', err.code || err.message);
-    } else if (committed) {
-      console.log('[STATS] OK — ownerUid:', ownerUid, '| dur:', dur, '| h:', hour);
-    }
-  });
-}
-
-// ── Listener temps réel ───────────────────────────────────────────
-var _mlStatsRef = null;
-
-function mlStatsStartListener() {
-  var ownerUid = mlStatsOwnerUid();
-  if (!ownerUid || !window.firebase) return;
-  if (_mlStatsRef) { try { _mlStatsRef.off(); } catch(e) {} }
-  _mlStatsRef = firebase.database().ref('cabinets/' + ownerUid + '/stats/' + mlStatsDate());
-  _mlStatsRef.on('value', function(snap) {
-    mlStatsUpdateUI(snap && snap.exists() ? snap.val() : null);
-  });
-  console.log('[STATS] Listener démarré pour', ownerUid);
-}
-
-function mlStatsStopListener() {
-  if (_mlStatsRef) { try { _mlStatsRef.off(); } catch(e) {} _mlStatsRef = null; }
-}
-
-// ── Mettre à jour l'interface ─────────────────────────────────────
-function mlStatsUpdateUI(data) {
-  var section = document.getElementById('mlStatsSection');
-  if (!section) return;
-  section.style.display = 'block';
-
-  var count  = data ? (data.consultations || 0) : 0;
-  var totDur = data ? (data.totalDuration  || 0) : 0;
-  var hours  = data ? (data.hours          || {}) : {};
-  var avgDur = count > 0 ? Math.round(totDur / count) : 0;
-
-  var peakH = -1, peakV = 0;
-  Object.keys(hours).forEach(function(h) {
-    if (Number(hours[h]) > peakV) { peakV = Number(hours[h]); peakH = Number(h); }
-  });
-
-  var elC = document.getElementById('mlStatCount');
-  var elA = document.getElementById('mlStatAvg');
-  var elP = document.getElementById('mlStatPeak');
-  if (elC) elC.textContent = count;
-  if (elA) elA.textContent = avgDur > 0 ? avgDur + ' min' : '—';
-  if (elP) elP.textContent = peakH >= 0 ? peakH + 'h–' + (peakH+1) + 'h' : '—';
-
-  // Graphique barres 8h–20h
-  var chart = document.getElementById('mlStatsChart');
-  if (chart) {
-    var maxV = 1;
-    for (var h2 = 8; h2 <= 20; h2++) { if (Number(hours[String(h2)]||0) > maxV) maxV = Number(hours[String(h2)]); }
-    var nowH = new Date().getHours();
-    var bars = '';
-    for (var h3 = 8; h3 <= 20; h3++) {
-      var v = Number(hours[String(h3)] || 0);
-      var pct = Math.max(5, Math.round(v / maxV * 100));
-      var col = (h3 === nowH) ? '#2563eb' : (v > 0 ? '#93c5fd' : '#e2e8f0');
-      bars += '<div style="display:flex;flex-direction:column;align-items:center;flex:1;gap:2px">'
-        + '<div style="width:100%;border-radius:3px 3px 0 0;background:' + col + ';height:' + pct + '%"></div>'
-        + '<div style="font-size:8px;color:#94a3b8">' + h3 + '</div>'
-        + '</div>';
-    }
-    chart.innerHTML = bars;
-  }
-}
-
-// ── Toggle détails ────────────────────────────────────────────────
-window.mlStatsToggle = function() {
-  var det = document.getElementById('mlStatsDetail');
-  var btn = document.getElementById('mlStatsToggleBtn');
-  if (!det) return;
-  var open = det.style.display === 'block';
-  det.style.display = open ? 'none' : 'block';
-  if (btn) btn.textContent = open ? 'Voir détails ▾' : 'Masquer ▴';
-};
 
 </script>
 
