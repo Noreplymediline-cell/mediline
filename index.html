@@ -11907,32 +11907,37 @@ function mlQrGenerate() {
 
   var wrap = document.getElementById('mlQrWrap');
   if (!wrap) return;
+
+  // Attendre que qrcodejs soit chargé (max 5s)
+  if (typeof QRCode === 'undefined') {
+    var tries = (mlQrGenerate._tries = (mlQrGenerate._tries || 0) + 1);
+    if (tries < 10) { setTimeout(mlQrGenerate, 500); }
+    return;
+  }
+
+  mlQrGenerate._tries = 0;
   wrap.innerHTML = '';
 
-  if (typeof QRCode !== 'undefined') {
+  try {
     new QRCode(wrap, {
-      text      : url,
-      width     : 160,
-      height    : 160,
-      colorDark : '#1d4ed8',
-      colorLight: '#ffffff',
+      text        : url,
+      width       : 160,
+      height      : 160,
+      colorDark   : '#1d4ed8',
+      colorLight  : '#ffffff',
       correctLevel: QRCode.CorrectLevel.M
     });
-    var printWrap = document.getElementById('mlQrPrintWrap');
-    if (printWrap) {
-      printWrap.innerHTML = '';
-      new QRCode(printWrap, {
-        text: url, width: 240, height: 240,
-        colorDark: '#1d4ed8', colorLight: '#ffffff',
-        correctLevel: QRCode.CorrectLevel.M
-      });
-    }
-    var printCode = document.getElementById('mlQrPrintCode');
-    if (printCode) printCode.textContent = codeVal;
-  } else {
-    // Fallback si lib pas chargée
-    wrap.innerHTML = '<div style="font-size:11px;color:#6b7280;padding:20px;text-align:center">QR indisponible<br><strong>' + codeVal + '</strong></div>';
+  } catch(e) {
+    wrap.innerHTML = '<div style="padding:12px;text-align:center;font-size:12px;color:#6b7280">Code : <strong>' + codeVal + '</strong></div>';
   }
+
+  var printWrap = document.getElementById('mlQrPrintWrap');
+  if (printWrap && typeof QRCode !== 'undefined') {
+    printWrap.innerHTML = '';
+    try { new QRCode(printWrap, { text: url, width: 240, height: 240, colorDark: '#1d4ed8', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M }); } catch(e) {}
+  }
+  var printCode = document.getElementById('mlQrPrintCode');
+  if (printCode) printCode.textContent = codeVal;
 }
 
 function mlQrDownload() {
