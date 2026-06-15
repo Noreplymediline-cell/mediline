@@ -10,7 +10,6 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://js.stripe.com/v3/"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 
 <style>
 /* ══════════════════════════════
@@ -1081,34 +1080,6 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
 .ml-cs-save{width:100%;padding:11px;background:var(--blue);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;margin-top:4px}
 .ml-cs-save:disabled{opacity:.6;cursor:not-allowed}
 .ml-cs-msg{font-size:12px;margin-top:6px;min-height:16px;text-align:center}
-
-/* ── QR Code ──────────────────────────────── */
-.ml-qr-box{background:#fff;border:1.5px solid var(--border);border-radius:14px;padding:18px;margin-bottom:14px;text-align:center}
-.ml-qr-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--blue);margin-bottom:12px;text-align:left}
-.ml-qr-btns{display:flex;gap:8px;margin-top:12px;justify-content:center}
-.ml-qr-btn{padding:8px 16px;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;border:none;font-family:inherit}
-.ml-qr-btn.blue{background:var(--blue);color:#fff}
-.ml-qr-btn.grey{background:var(--bg);color:var(--navy);border:1.5px solid var(--border)}
-/* ── Absence ──────────────────────────────── */
-.ml-absence-box{background:#fff;border:1.5px solid var(--border);border-radius:14px;padding:18px;margin-bottom:14px}
-.ml-absence-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--blue);margin-bottom:12px}
-.ml-absence-row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-.ml-sw{position:relative;width:44px;height:24px;flex-shrink:0;display:inline-block}
-.ml-sw input{opacity:0;width:0;height:0}
-.ml-sw-sl{position:absolute;inset:0;background:#cbd5e1;border-radius:24px;cursor:pointer;transition:.2s}
-.ml-sw-sl:before{content:'';position:absolute;width:18px;height:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s}
-.ml-sw input:checked+.ml-sw-sl{background:#ef4444}
-.ml-sw input:checked+.ml-sw-sl:before{transform:translateX(20px)}
-.ml-absence-txt{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;font-family:inherit;color:var(--navy);background:var(--bg);box-sizing:border-box;resize:none}
-.ml-absence-save{width:100%;padding:9px;background:var(--blue);color:#fff;border:none;border-radius:9px;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;margin-top:6px}
-.ml-absence-save:active{opacity:.85}
-/* ── Bandeau patient ──────────────────────── */
-.ml-cab-closed{background:#fef2f2;border:1.5px solid #fca5a5;border-radius:12px;padding:14px 16px;margin-bottom:12px;font-size:13px;color:#dc2626;font-weight:600;display:none}
-/* ── Google Maps btn ─────────────────────── */
-.ml-maps-btn{display:none;margin-bottom:12px}
-.ml-maps-link{display:flex;align-items:center;gap:8px;padding:11px 14px;background:#fff;border:1.5px solid var(--border);border-radius:11px;font-size:13px;font-weight:700;color:var(--navy);text-decoration:none}
-@media print{body>*{display:none!important}.ml-qr-print{display:flex!important}}
-.ml-qr-print{display:none;flex-direction:column;align-items:center;padding:40px;font-family:sans-serif}
 </style>
 <!-- Firebase SDKs (doit charger avant le JS applicatif) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -2245,35 +2216,6 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
 
 
       <!-- ══ PERSONNALISATION PAGE CABINET ══════════════════════ -->
-      <!-- ══ QR CODE ═══════════════════════════════════════════ -->
-      <div class="ml-qr-box" id="mlQrBox">
-        <div class="ml-qr-title">📱 QR Code du cabinet</div>
-        <div id="mlQrWrap" style="display:flex;justify-content:center;min-height:160px;align-items:center"></div>
-        <div class="ml-qr-btns">
-          <button class="ml-qr-btn blue" onclick="mlQrDownload()">⬇️ Télécharger</button>
-          <button class="ml-qr-btn grey" onclick="mlQrPrint()">🖨️ Imprimer</button>
-        </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:8px">À afficher en salle d'attente</div>
-      </div>
-      <!-- ═══════════════════════════════════════════════════════ -->
-
-      <!-- ══ MESSAGE FERMETURE ════════════════════════════════════ -->
-      <div class="ml-absence-box" id="mlAbsenceBox">
-        <div class="ml-absence-title">🚫 Cabinet fermé</div>
-        <div class="ml-absence-row">
-          <label class="ml-sw">
-            <input type="checkbox" id="mlAbsenceTog" onchange="mlAbsenceSave()">
-            <span class="ml-sw-sl"></span>
-          </label>
-          <span style="font-size:13px;font-weight:600;color:var(--navy)">Afficher un message de fermeture aux patients</span>
-        </div>
-        <textarea class="ml-absence-txt" id="mlAbsenceTxt" rows="2"
-          placeholder="Ex : Cabinet fermé aujourd'hui. Reprise lundi à 9h."></textarea>
-        <button class="ml-absence-save" onclick="mlAbsenceSave()">💾 Sauvegarder</button>
-        <div id="mlAbsenceOk" style="font-size:12px;color:var(--green);margin-top:6px;min-height:16px"></div>
-      </div>
-      <!-- ═══════════════════════════════════════════════════════ -->
-
       <div class="ml-cs" id="mlCsSection">
         <div class="ml-cs-title">🎨 Page cabinet (vue patients)</div>
         <div class="ml-cs-field">
@@ -2445,12 +2387,6 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
       <div class="pat-screen-title" id="cabinetName"></div>
       <div class="pat-screen-sub" id="cabinetAddr"></div>
       <div id="cabMsgWrap"></div>
-      <div class="ml-cab-closed" id="cabClosedBanner">🚫 <span id="cabClosedText">Le cabinet est fermé pour le moment.</span></div>
-      <div class="ml-maps-btn" id="cabMapsBtn">
-        <a class="ml-maps-link" id="cabMapsLink" href="#" target="_blank" rel="noopener">
-          <span style="font-size:18px">📍</span> Obtenir l'itinéraire
-        </a>
-      </div>
       <div class="doc-list" id="docListCabinet"></div>
     </div>
 
@@ -5724,9 +5660,6 @@ async function openCabinet(code) {
           if (addrEl) addrEl.style.display = 'none';
         }
 
-        // Extras : absence + Google Maps
-        if (typeof mlPatientExtras === 'function') mlPatientExtras(cab, code);
-
         if (msgWrap) {
           msgWrap.innerHTML = welcome
             ? '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:11px 14px;margin-bottom:12px;font-size:13px;color:#1e40af;line-height:1.5">💬 ' + esc(welcome) + '</div>'
@@ -8491,10 +8424,6 @@ async function dmInitSection() {
     section.style.display = 'none';
     var csSection = document.getElementById('mlCsSection');
     if (csSection) csSection.style.display = 'none';
-    ['mlQrBox','mlAbsenceBox'].forEach(function(id){
-      var el = document.getElementById(id);
-      if (el) el.style.display = 'none';
-    });
     return;
   }
 
@@ -9054,12 +8983,6 @@ function buildInviteHtml(name, email, cabinetCode, inviteLink) {
 
 
 
-<div class="ml-qr-print" id="mlQrPrintZone">
-  <div id="mlQrPrintWrap"></div>
-  <div style="margin-top:20px;font-size:22px;font-weight:800;color:#1d4ed8;font-family:sans-serif">MediLine</div>
-  <div id="mlQrPrintCode" style="font-size:16px;font-weight:700;color:#374151;margin-top:6px;font-family:monospace"></div>
-  <div style="font-size:13px;color:#6b7280;margin-top:4px">Scannez pour accéder à la file d'attente</div>
-</div>
 </body></html>`;
 }
 
@@ -11888,167 +11811,6 @@ window.checkPromo = function() {
     setTimeout(function(){ try{ window.dmInitSection&&window.dmInitSection(); }catch(e){} },800);
   }
 
-})();
-
-
-/* ═══════════════════════════════════════════════════════════════
-   QR CODE + FERMETURE CABINET + GOOGLE MAPS
-   ═══════════════════════════════════════════════════════════════ */
-
-// ── QR Code via librairie qrcodejs (CDN) ─────────────────────────
-function mlQrGenerate() {
-  var codeEl = document.getElementById('cabinetCode');
-  var codeVal = codeEl ? codeEl.textContent.trim() : '';
-  if (!codeVal || codeVal === '—') { setTimeout(mlQrGenerate, 800); return; }
-
-  var url = 'https://medilinee.louis16907.workers.dev/?cabinet=' + encodeURIComponent(codeVal);
-  window._mlQrUrl  = url;
-  window._mlQrCode = codeVal;
-
-  var wrap = document.getElementById('mlQrWrap');
-  if (!wrap) return;
-
-  // Attendre que qrcodejs soit chargé (max 5s)
-  if (typeof QRCode === 'undefined') {
-    var tries = (mlQrGenerate._tries = (mlQrGenerate._tries || 0) + 1);
-    if (tries < 10) { setTimeout(mlQrGenerate, 500); }
-    return;
-  }
-
-  mlQrGenerate._tries = 0;
-  wrap.innerHTML = '';
-
-  try {
-    new QRCode(wrap, {
-      text        : url,
-      width       : 160,
-      height      : 160,
-      colorDark   : '#1d4ed8',
-      colorLight  : '#ffffff',
-      correctLevel: QRCode.CorrectLevel.M
-    });
-  } catch(e) {
-    wrap.innerHTML = '<div style="padding:12px;text-align:center;font-size:12px;color:#6b7280">Code : <strong>' + codeVal + '</strong></div>';
-  }
-
-  var printWrap = document.getElementById('mlQrPrintWrap');
-  if (printWrap && typeof QRCode !== 'undefined') {
-    printWrap.innerHTML = '';
-    try { new QRCode(printWrap, { text: url, width: 240, height: 240, colorDark: '#1d4ed8', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M }); } catch(e) {}
-  }
-  var printCode = document.getElementById('mlQrPrintCode');
-  if (printCode) printCode.textContent = codeVal;
-}
-
-function mlQrDownload() {
-  var wrap = document.getElementById('mlQrWrap');
-  if (!wrap) return;
-  var canvas = wrap.querySelector('canvas');
-  if (!canvas) return;
-  var a = document.createElement('a');
-  a.href = canvas.toDataURL('image/png');
-  a.download = 'qr-mediline-' + (window._mlQrCode || 'cabinet') + '.png';
-  a.click();
-}
-
-window.mlQrDownload = mlQrDownload;
-window.mlQrPrint = mlQrPrint;
-
-// ── Message fermeture ─────────────────────────────────────────────
-async function mlAbsenceLoad() {
-  var uid = window.docCurrentUser;
-  if (!uid || !window.firebase) return;
-  try {
-    var snap = await firebase.database().ref('cabinets/' + uid + '/absence').once('value');
-    var d = snap && snap.exists() ? snap.val() : null;
-    var tog = document.getElementById('mlAbsenceTog');
-    var txt = document.getElementById('mlAbsenceTxt');
-    if (tog) tog.checked = !!(d && d.active);
-    if (txt && d && d.message) txt.value = d.message;
-  } catch(e) {}
-}
-
-async function mlAbsenceSave() {
-  var uid = window.docCurrentUser;
-  if (!uid || !window.firebase) return;
-  var tog = document.getElementById('mlAbsenceTog');
-  var txt = document.getElementById('mlAbsenceTxt');
-  var ok  = document.getElementById('mlAbsenceOk');
-  var active  = tog ? tog.checked : false;
-  var message = txt ? txt.value.trim() : '';
-  try {
-    await firebase.database().ref('cabinets/' + uid + '/absence').set({
-      active: active,
-      message: message
-    });
-    if (ok) {
-      ok.textContent = '✅ Sauvegardé';
-      setTimeout(function(){ ok.textContent = ''; }, 2000);
-    }
-  } catch(e) {
-    if (ok) { ok.textContent = '❌ Erreur'; ok.style.color = '#ef4444'; }
-  }
-}
-
-window.mlAbsenceSave = mlAbsenceSave;
-
-// ── Côté patient : fermeture + Maps ──────────────────────────────
-function mlPatientExtras(cab, code) {
-  // Bandeau fermeture
-  var banner  = document.getElementById('cabClosedBanner');
-  var banText = document.getElementById('cabClosedText');
-  var listEl  = document.getElementById('docListCabinet');
-  var absence = cab && cab.absence;
-
-  if (banner) {
-    if (absence && absence.active) {
-      banner.style.display = 'block';
-      if (banText) banText.textContent = absence.message || 'Le cabinet est fermé pour le moment.';
-      if (listEl) listEl.style.opacity = '0.35';
-    } else {
-      banner.style.display = 'none';
-      if (listEl) listEl.style.opacity = '';
-    }
-  }
-
-  // Google Maps
-  var mapsBtn  = document.getElementById('cabMapsBtn');
-  var mapsLink = document.getElementById('cabMapsLink');
-  var adresse  = cab && (cab.adresse || cab.address || '');
-  if (mapsBtn && adresse) {
-    mapsLink.href = 'https://www.google.com/maps/search/?api=1&query='
-      + encodeURIComponent(adresse);
-    mapsBtn.style.display = 'block';
-  }
-}
-
-window.mlPatientExtras = mlPatientExtras;
-
-// ── Observer : QR + Absence chargés quand dashboard s'ouvre ──────
-(function() {
-  var _loaded = false;
-  var _obs = new MutationObserver(function() {
-    var uid = window.docCurrentUser;
-    if (!uid || _loaded) return;
-    var greet = document.getElementById('docGreeting');
-    if (!greet || !greet.textContent || greet.textContent.trim() === '') return;
-    _loaded = true;
-    setTimeout(function() {
-      mlQrGenerate();
-      mlAbsenceLoad();
-    }, 600);
-  });
-  var greet = document.getElementById('docGreeting');
-  if (greet) _obs.observe(greet, { childList: true, characterData: true, subtree: true });
-
-  // Reset au logout
-  var _origLogout = window.docLogout;
-  if (typeof _origLogout === 'function') {
-    window.docLogout = function() {
-      _loaded = false;
-      return _origLogout.apply(this, arguments);
-    };
-  }
 })();
 
 </script>
