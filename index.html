@@ -2227,9 +2227,9 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
       <!-- ══ QR CODE ═══════════════════════════════════════════ -->
       <div class="ml-qr-section" id="mlQrSection">
         <div class="ml-qr-label">📱 QR Code du cabinet</div>
-        <div id="mlQrDiv" style="display:inline-block;padding:8px;background:#fff;border-radius:10px;border:1.5px solid var(--border)"></div>
+        <div id="cabinetQRCode" style="display:inline-block;padding:8px;background:#fff;border-radius:10px;border:1.5px solid var(--border)"></div>
         <div class="ml-qr-btns">
-          <button class="ml-qr-btn ml-qr-btn-blue" onclick="window.mlQrDownload()">⬇️ Télécharger</button>
+          <button class="ml-qr-btn ml-qr-btn-blue" id="downloadQRCodeBtn">⬇️ Télécharger</button>
         </div>
         <div style="font-size:11px;color:var(--muted);margin-top:8px">Scannez pour accéder à la file d'attente</div>
       </div>
@@ -4301,6 +4301,20 @@ function openDocDashboard(name, userData) {
 
   console.log('[ML] Dashboard publicCode:', code, '| uid:', uid_for_code);
   document.getElementById('cabinetCode').textContent = code || '—';
+  // Générer QR quand le code est disponible
+  // Attendre que la lib QRCode du block 6 soit chargée
+  (function(qrCode){
+    if (!qrCode || qrCode === '—') return;
+    var _tries = 0;
+    function _tryQR() {
+      if (typeof QRCode !== 'undefined') {
+        if (typeof mlQrGenerate === 'function') mlQrGenerate();
+      } else if (_tries++ < 30) {
+        setTimeout(_tryQR, 200);
+      }
+    }
+    _tryQR();
+  })(code);
   const base = location.href.split('?')[0];
   document.getElementById('shareUrl').textContent = base + '?cabinet=' + encodeURIComponent(code) + '&view=patient';
   // Aussi sauvegarder le publicCode en DB sur l'utilisateur courant si c'est un vrai code ML-
@@ -11847,64 +11861,75 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
 function mlQrGenerate() {
   var codeEl = document.getElementById('cabinetCode');
-  var code = codeEl ? codeEl.textContent.trim() : '';
-  if (!code || code === '—') { setTimeout(mlQrGenerate, 600); return; }
+  var code   = codeEl ? codeEl.textContent.trim() : '';
+  if (!code || code === '—') return;
 
-  var url = 'https://medilinee.louis16907.workers.dev/?cabinet=' + encodeURIComponent(code);
-  window._mlQrUrl  = url;
-  window._mlQrCode = code;
-
-  var div = document.getElementById('mlQrDiv');
-  if (!div) return;
-  div.innerHTML = '';
+  var container = document.getElementById('cabinetQRCode');
+  if (!container) { console.error('[QR] Conteneur cabinetQRCode introuvable'); return; }
 
   if (typeof QRCode === 'undefined') {
-    setTimeout(mlQrGenerate, 200);
+    console.error('[QR] Lib QRCode non chargée');
+    container.innerHTML = '<div style="padding:10px;font-size:11px;color:#ef4444">Erreur lib QR</div>';
     return;
   }
-  div.innerHTML = '';
+
+  var cabinetUrl = window.location.origin + '/?cabinet=' + encodeURIComponent(code);
+  window._mlQrUrl  = cabinetUrl;
+  window._mlQrCode = code;
+  console.log('[QR] Génération pour:', code, '| URL:', cabinetUrl);
+
+  container.innerHTML = '';
   try {
-    new QRCode(div, {
-      text        : url,
-      width       : 160,
-      height      : 160,
+    new QRCode(container, {
+      text        : cabinetUrl,
+      width       : 200,
+      height      : 200,
       colorDark   : '#1d4ed8',
       colorLight  : '#ffffff',
-      correctLevel: QRCode.CorrectLevel.M
+      correctLevel: QRCode.CorrectLevel.H
     });
+    console.log('[QR] OK');
+    // Brancher le bouton télécharger
+    var btn = document.getElementById('downloadQRCodeBtn');
+    if (btn) btn.onclick = downloadCabinetQRCode;
   } catch(e) {
-    div.innerHTML = '<div style="padding:12px;text-align:center;font-size:12px;color:#374151">Code : <strong>' + code + '</strong></div>';
+    console.error('[QR] Erreur:', e.message);
+    container.innerHTML = '<div style="padding:12px;text-align:center;font-size:12px;color:#374151">Code : <strong>' + code + '</strong></div>';
   }
 }
 
-// Auto-générer dès que le dashboard affiche le code cabinet
-(function() {
-  var _done = false;
-  var _obs = new MutationObserver(function() {
-    if (_done) return;
-    var el = document.getElementById('cabinetCode');
-    var code = el ? el.textContent.trim() : '';
-    if (code && code !== '—') {
-      _done = true;
-      setTimeout(mlQrGenerate, 100);
-    }
-  });
-  document.addEventListener('DOMContentLoaded', function() {
-    var el = document.getElementById('cabinetCode');
-    if (el) _obs.observe(el, { childList: true, characterData: true, subtree: true });
-  });
-})();
+function downloadCabinetQRCode() {
+  var container = document.getElementById('cabinetQRCode');
+  if (!container) return;
+  var canvas = container.querySelector('canvas');
+  var img    = container.querySelector('img');
+  var dataUrl = null;
+  if (canvas) {
+    dataUrl = canvas.toDataURL('image/png');
+  } else if (img) {
+    dataUrl = img.src;
+  }
+  if (!dataUrl) {
+    alert('QR code introuvable. Rechargez la page.');
+    console.error('[QR] Téléchargement impossible : aucun canvas/img trouvé');
+    return;
+  }
+  var link = document.createElement('a');
+  link.href = dataUrl;
+  link.download = 'mediline-qr-' + (window._mlQrCode || 'cabinet') + '.png';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  console.log('[QR] Téléchargement:', link.download);
+}
 
-window.mlQrDownload = function() {
-  var div = document.getElementById('mlQrDiv');
-  if (!div) return;
-  var canvas = div.querySelector('canvas');
-  if (!canvas) return;
-  var a = document.createElement('a');
-  a.href = canvas.toDataURL('image/png');
-  a.download = 'qr-mediline-' + (window._mlQrCode || 'cabinet') + '.png';
-  a.click();
-};
+window.mlQrGenerate        = mlQrGenerate;
+window.downloadCabinetQRCode = downloadCabinetQRCode;
+window.mlQrDownload        = downloadCabinetQRCode;
+
+
+
+
 
 </script>
 
