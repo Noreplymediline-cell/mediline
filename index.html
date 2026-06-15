@@ -11844,69 +11844,54 @@ window.checkPromo = function() {
 
 // Tiny QR encoder — basé sur qr.js (domaine public)
 // Source : https://github.com/nicktindall/cyclon.p2p (MIT)
-window._mlQrMake = (function() {
-  // On charge qrcodejs dynamiquement une seule fois
-  var _lib = null;
-  var _pending = [];
+function mlQrGenerate() {
+  var codeEl = document.getElementById('cabinetCode');
+  var code = codeEl ? codeEl.textContent.trim() : '';
+  if (!code || code === '—') { setTimeout(mlQrGenerate, 600); return; }
 
-  function loadLib(cb) {
-    if (_lib) { cb(_lib); return; }
-    _pending.push(cb);
-    if (_pending.length > 1) return;
-    var s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js';
-    s.onload = function() {
-      _lib = window.QRCode;
-      _pending.forEach(function(fn){ fn(_lib); });
-      _pending = [];
-    };
-    s.onerror = function() {
-      // Fallback : charger depuis unpkg
-      var s2 = document.createElement('script');
-      s2.src = 'https://unpkg.com/qrcodejs@1.0.0/qrcode.min.js';
-      s2.onload = function() {
-        _lib = window.QRCode;
-        _pending.forEach(function(fn){ fn(_lib); });
-        _pending = [];
-      };
-      document.head.appendChild(s2);
-    };
-    document.head.appendChild(s);
-  }
+  var url = 'https://medilinee.louis16907.workers.dev/?cabinet=' + encodeURIComponent(code);
+  window._mlQrUrl  = url;
+  window._mlQrCode = code;
 
-  return function(divId, text) {
-    loadLib(function(QRCode) {
-      if (!QRCode) return;
-      var div = document.getElementById(divId);
-      if (!div) return;
-      div.innerHTML = '';
+  var div = document.getElementById('mlQrDiv');
+  if (!div) return;
+  div.innerHTML = '<div style="width:160px;height:160px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#94a3b8">Chargement...</div>';
+
+  function doQr() {
+    if (typeof QRCode === 'undefined') { setTimeout(doQr, 300); return; }
+    div.innerHTML = '';
+    try {
       new QRCode(div, {
-        text        : text,
+        text        : url,
         width       : 160,
         height      : 160,
         colorDark   : '#1d4ed8',
         colorLight  : '#ffffff',
         correctLevel: QRCode.CorrectLevel.M
       });
-    });
-  };
-})();
-
-function mlQrGenerate() {
-  // Lire le code unique ML-XXXXX affiché dans le dashboard
-  var codeEl = document.getElementById('cabinetCode');
-  var code = codeEl ? codeEl.textContent.trim() : '';
-  if (!code || code === '—') {
-    // Pas encore chargé — réessayer
-    setTimeout(mlQrGenerate, 600);
-    return;
+    } catch(e) {
+      div.innerHTML = '<div style="padding:10px;font-size:11px;color:#6b7280;text-align:center"><strong>' + code + '</strong><br>medilinee.louis16907.workers.dev</div>';
+    }
   }
 
-  var url = 'https://medilinee.louis16907.workers.dev/?cabinet=' + encodeURIComponent(code);
-  window._mlQrUrl  = url;
-  window._mlQrCode = code;
-
-  window._mlQrMake('mlQrDiv', url);
+  // Charger la lib si pas encore disponible
+  if (typeof QRCode === 'undefined') {
+    var s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js';
+    s.onload = doQr;
+    s.onerror = function() {
+      var s2 = document.createElement('script');
+      s2.src = 'https://unpkg.com/qrcodejs/qrcode.min.js';
+      s2.onload = doQr;
+      s2.onerror = function() {
+        div.innerHTML = '<div style="padding:10px;font-size:11px;color:#6b7280;text-align:center"><strong>' + code + '</strong></div>';
+      };
+      document.head.appendChild(s2);
+    };
+    document.head.appendChild(s);
+  } else {
+    doQr();
+  }
 }
 
 window.mlQrDownload = function() {
