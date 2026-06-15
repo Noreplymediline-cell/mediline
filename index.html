@@ -9150,17 +9150,16 @@ async function dmDeleteDoctor(doctorUid, doctorName) {
     // 2. Supprimer invitations/{doctorUid} si existe
     await ref('invitations/' + doctorUid).remove().catch(() => {});
 
-    // 3. Nettoyer users/{doctorUid} sans supprimer le compte Auth
-    //    (juste retirer les champs d'appartenance au cabinet)
+    // 3. Nettoyer users/{doctorUid} — supprimer les champs d'appartenance
+    //    Firebase RTDB n'accepte pas null dans update(), on utilise remove() par champ
     if (!doctorUid.startsWith('invite_')) {
-      await ref('users/' + doctorUid).update({
-        addedBy       : null,
-        invitedBy     : null,
-        billingOwner  : null,
-        cabinetId     : null,
-        role          : 'owner',
-        disabled      : false
-      }).catch(() => {});
+      var userRef = firebase.database().ref('users/' + doctorUid);
+      await Promise.all([
+        userRef.child('addedBy').remove(),
+        userRef.child('invitedBy').remove(),
+        userRef.child('billingOwner').remove(),
+        userRef.child('cabinetId').remove()
+      ]).catch(function(){});
     }
 
     // 4. Nettoyer localStorage
