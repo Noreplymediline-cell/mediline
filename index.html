@@ -11849,59 +11849,37 @@ function mlQrGenerate() {
   var code = codeEl ? codeEl.textContent.trim() : '';
   if (!code || code === '—') { setTimeout(mlQrGenerate, 600); return; }
 
-  var url = 'https://medilinee.louis16907.workers.dev/?cabinet=' + encodeURIComponent(code);
-  window._mlQrUrl  = url;
+  var cabinetUrl = 'https://medilinee.louis16907.workers.dev/?cabinet=' + encodeURIComponent(code);
+  window._mlQrUrl  = cabinetUrl;
   window._mlQrCode = code;
 
   var div = document.getElementById('mlQrDiv');
   if (!div) return;
-  div.innerHTML = '<div style="width:160px;height:160px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#94a3b8">Chargement...</div>';
 
-  function doQr() {
-    if (typeof QRCode === 'undefined') { setTimeout(doQr, 300); return; }
-    div.innerHTML = '';
-    try {
-      new QRCode(div, {
-        text        : url,
-        width       : 160,
-        height      : 160,
-        colorDark   : '#1d4ed8',
-        colorLight  : '#ffffff',
-        correctLevel: QRCode.CorrectLevel.M
-      });
-    } catch(e) {
-      div.innerHTML = '<div style="padding:10px;font-size:11px;color:#6b7280;text-align:center"><strong>' + code + '</strong><br>medilinee.louis16907.workers.dev</div>';
-    }
-  }
+  // Utiliser le worker /api/qr (proxy côté serveur, pas de CORS)
+  var qrSrc = '/api/qr?data=' + encodeURIComponent(cabinetUrl);
 
-  // Charger la lib si pas encore disponible
-  if (typeof QRCode === 'undefined') {
-    var s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js';
-    s.onload = doQr;
-    s.onerror = function() {
-      var s2 = document.createElement('script');
-      s2.src = 'https://unpkg.com/qrcodejs/qrcode.min.js';
-      s2.onload = doQr;
-      s2.onerror = function() {
-        div.innerHTML = '<div style="padding:10px;font-size:11px;color:#6b7280;text-align:center"><strong>' + code + '</strong></div>';
-      };
-      document.head.appendChild(s2);
-    };
-    document.head.appendChild(s);
-  } else {
-    doQr();
-  }
+  var img = document.createElement('img');
+  img.src = qrSrc;
+  img.width = 160;
+  img.height = 160;
+  img.alt = 'QR ' + code;
+  img.style.borderRadius = '8px';
+  img.style.display = 'block';
+  img.onerror = function() {
+    div.innerHTML = '<div style="padding:16px;font-size:12px;color:#6b7280;text-align:center">Code : <strong>' + code + '</strong></div>';
+  };
+  div.innerHTML = '';
+  div.appendChild(img);
 }
 
 window.mlQrDownload = function() {
-  var div = document.getElementById('mlQrDiv');
-  if (!div) return;
-  var canvas = div.querySelector('canvas');
-  if (!canvas) { alert('QR pas encore généré'); return; }
+  if (!window._mlQrUrl || !window._mlQrCode) return;
+  // Télécharger via le worker /api/qr (image PNG directe)
   var a = document.createElement('a');
-  a.href = canvas.toDataURL('image/png');
-  a.download = 'qr-mediline-' + (window._mlQrCode || 'cabinet') + '.png';
+  a.href = '/api/qr?data=' + encodeURIComponent(window._mlQrUrl);
+  a.download = 'qr-mediline-' + window._mlQrCode + '.png';
+  a.target = '_blank';
   a.click();
 };
 
