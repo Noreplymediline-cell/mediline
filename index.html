@@ -4301,8 +4301,6 @@ function openDocDashboard(name, userData) {
 
   console.log('[ML] Dashboard publicCode:', code, '| uid:', uid_for_code);
   document.getElementById('cabinetCode').textContent = code || '—';
-  // Générer le QR avec le code unique du cabinet
-  setTimeout(function(){ if(typeof mlQrGenerate==='function') mlQrGenerate(); }, 300);
   const base = location.href.split('?')[0];
   document.getElementById('shareUrl').textContent = base + '?cabinet=' + encodeURIComponent(code) + '&view=patient';
   // Aussi sauvegarder le publicCode en DB sur l'utilisateur courant si c'est un vrai code ML-
@@ -11860,6 +11858,11 @@ function mlQrGenerate() {
   if (!div) return;
   div.innerHTML = '';
 
+  if (typeof QRCode === 'undefined') {
+    setTimeout(mlQrGenerate, 200);
+    return;
+  }
+  div.innerHTML = '';
   try {
     new QRCode(div, {
       text        : url,
@@ -11873,6 +11876,24 @@ function mlQrGenerate() {
     div.innerHTML = '<div style="padding:12px;text-align:center;font-size:12px;color:#374151">Code : <strong>' + code + '</strong></div>';
   }
 }
+
+// Auto-générer dès que le dashboard affiche le code cabinet
+(function() {
+  var _done = false;
+  var _obs = new MutationObserver(function() {
+    if (_done) return;
+    var el = document.getElementById('cabinetCode');
+    var code = el ? el.textContent.trim() : '';
+    if (code && code !== '—') {
+      _done = true;
+      setTimeout(mlQrGenerate, 100);
+    }
+  });
+  document.addEventListener('DOMContentLoaded', function() {
+    var el = document.getElementById('cabinetCode');
+    if (el) _obs.observe(el, { childList: true, characterData: true, subtree: true });
+  });
+})();
 
 window.mlQrDownload = function() {
   var div = document.getElementById('mlQrDiv');
