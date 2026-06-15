@@ -11856,28 +11856,34 @@ function mlQrGenerate() {
   var div = document.getElementById('mlQrDiv');
   if (!div) return;
 
-  // Utiliser le worker /api/qr (proxy côté serveur, pas de CORS)
-  var qrSrc = '/api/qr?data=' + encodeURIComponent(cabinetUrl);
+  // URL directe qrserver.com — fonctionne comme une image normale
+  var qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=160x160'
+    + '&data=' + encodeURIComponent(cabinetUrl)
+    + '&color=1d4ed8&bgcolor=ffffff&margin=8&ecc=M';
 
+  div.innerHTML = '';
   var img = document.createElement('img');
-  img.src = qrSrc;
   img.width = 160;
   img.height = 160;
-  img.alt = 'QR ' + code;
-  img.style.borderRadius = '8px';
-  img.style.display = 'block';
+  img.alt = code;
+  img.style.cssText = 'border-radius:8px;display:block;margin:0 auto';
   img.onerror = function() {
-    div.innerHTML = '<div style="padding:16px;font-size:12px;color:#6b7280;text-align:center">Code : <strong>' + code + '</strong></div>';
+    // Si qrserver bloqué, essayer chart.googleapis.com
+    img.onerror = function() {
+      div.innerHTML = '<div style="padding:16px;text-align:center;font-size:13px;color:#374151">Code : <strong>' + code + '</strong><br><small style="color:#6b7280">medilinee.louis16907.workers.dev</small></div>';
+    };
+    img.src = 'https://chart.googleapis.com/chart?cht=qr&chs=160x160&chl=' + encodeURIComponent(cabinetUrl) + '&choe=UTF-8&chld=M|2';
   };
-  div.innerHTML = '';
+  img.src = qrSrc;
   div.appendChild(img);
 }
 
 window.mlQrDownload = function() {
   if (!window._mlQrUrl || !window._mlQrCode) return;
-  // Télécharger via le worker /api/qr (image PNG directe)
   var a = document.createElement('a');
-  a.href = '/api/qr?data=' + encodeURIComponent(window._mlQrUrl);
+  a.href = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400'
+    + '&data=' + encodeURIComponent(window._mlQrUrl)
+    + '&color=1d4ed8&bgcolor=ffffff&margin=12&ecc=M';
   a.download = 'qr-mediline-' + window._mlQrCode + '.png';
   a.target = '_blank';
   a.click();
