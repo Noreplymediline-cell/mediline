@@ -10,6 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://js.stripe.com/v3/"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 
 <style>
 /* ══════════════════════════════
@@ -2247,7 +2248,7 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
       <!-- ══ QR CODE ═══════════════════════════════════════════ -->
       <div class="ml-qr-box" id="mlQrBox">
         <div class="ml-qr-title">📱 QR Code du cabinet</div>
-        <canvas id="mlQrCanvas" width="160" height="160" style="border-radius:10px;border:1.5px solid var(--border);display:block;margin:0 auto"></canvas>
+        <div id="mlQrWrap" style="display:flex;justify-content:center;min-height:160px;align-items:center"></div>
         <div class="ml-qr-btns">
           <button class="ml-qr-btn blue" onclick="mlQrDownload()">⬇️ Télécharger</button>
           <button class="ml-qr-btn grey" onclick="mlQrPrint()">🖨️ Imprimer</button>
@@ -9054,7 +9055,7 @@ function buildInviteHtml(name, email, cabinetCode, inviteLink) {
 
 
 <div class="ml-qr-print" id="mlQrPrintZone">
-  <canvas id="mlQrPrintCanvas" width="240" height="240" style="border-radius:12px"></canvas>
+  <div id="mlQrPrintWrap"></div>
   <div style="margin-top:20px;font-size:22px;font-weight:800;color:#1d4ed8;font-family:sans-serif">MediLine</div>
   <div id="mlQrPrintCode" style="font-size:16px;font-weight:700;color:#374151;margin-top:6px;font-family:monospace"></div>
   <div style="font-size:13px;color:#6b7280;margin-top:4px">Scannez pour accéder à la file d'attente</div>
@@ -11894,148 +11895,55 @@ window.checkPromo = function() {
    QR CODE + FERMETURE CABINET + GOOGLE MAPS
    ═══════════════════════════════════════════════════════════════ */
 
-// ── QR Code JS pur (algorithme simplifié) ────────────────────────
-// Génère un QR code de type URL en canvas, sans dépendance externe
-
-function mlQrDraw(canvas, text, fg, bg) {
-  // Encodage simplifié : matrice QR basique via library inline
-  // On utilise une approche : encoder l'URL en data-matrix visuel simplifié
-  // Pour un vrai QR scannable, on encode byte par byte
-  var N = 21; // Version 1 QR = 21x21 modules (jusqu'à 25 chars alphanum)
-  // Pour URLs longues : version 5 = 37x37
-  if (text.length > 25) N = 37;
-  if (text.length > 47) N = 41;
-
-  var size = canvas.width;
-  var cell = Math.floor(size / (N + 4)); // 4 modules de marge
-  var margin = Math.floor((size - cell * N) / 2);
-
-  var ctx = canvas.getContext('2d');
-  ctx.fillStyle = bg || '#ffffff';
-  ctx.fillRect(0, 0, size, size);
-
-  // Encoder le texte en bits (ISO 8859-1 byte mode)
-  var bytes = [];
-  for (var i = 0; i < text.length; i++) bytes.push(text.charCodeAt(i) & 0xff);
-
-  // Header byte mode + longueur + data + terminator
-  var bits = [];
-  function addBits(val, len) {
-    for (var b = len-1; b >= 0; b--) bits.push((val >> b) & 1);
-  }
-  addBits(4, 4); // mode byte
-  addBits(bytes.length, N <= 26 ? 8 : 16); // longueur
-  bytes.forEach(function(b){ addBits(b, 8); });
-  addBits(0, 4); // terminator
-  // Pad à multiple de 8
-  while (bits.length % 8) bits.push(0);
-  var pads = [0xEC, 0x11];
-  var pi = 0;
-  while (bits.length < (N === 21 ? 152 : N === 37 ? 468 : 520)) {
-    addBits(pads[pi++ % 2], 8);
-  }
-
-  // Générer matrice via hachage déterministe (pseudo-QR visuel)
-  // Note : ce n'est pas un vrai QR scannable mais visuellement identique
-  // Pour un vrai QR, on aurait besoin d'une vraie lib Reed-Solomon
-  // → On utilise un fallback text URL compact
-  
-  // VRAIE SOLUTION : encoder l'URL dans un format compatible
-  // En pratique : générer la matrice depuis les bits de données
-  var matrix = [];
-  for (var r = 0; r < N; r++) {
-    matrix[r] = [];
-    for (var col = 0; col < N; col++) matrix[r][col] = 2; // 2 = non affecté
-  }
-
-  // Finder patterns (carrés de localisation)
-  function finder(tr, tc) {
-    for (var dr = -1; dr <= 7; dr++) for (var dc = -1; dc <= 7; dc++) {
-      var mr = tr+dr, mc = tc+dc;
-      if (mr < 0 || mr >= N || mc < 0 || mc >= N) continue;
-      var inOuter = dr >= 0 && dr <= 6 && dc >= 0 && dc <= 6;
-      var inInner = dr >= 2 && dr <= 4 && dc >= 2 && dc <= 4;
-      var onBorder = dr === 0 || dr === 6 || dc === 0 || dc === 6;
-      matrix[mr][mc] = (inOuter && (onBorder || inInner)) ? 1 : 0;
-    }
-  }
-  finder(0, 0); finder(0, N-7); finder(N-7, 0);
-
-  // Timing patterns
-  for (var t = 8; t < N-8; t++) {
-    if (matrix[6][t] === 2) matrix[6][t] = t % 2 === 0 ? 1 : 0;
-    if (matrix[t][6] === 2) matrix[t][6] = t % 2 === 0 ? 1 : 0;
-  }
-
-  // Dark module
-  matrix[N-8][8] = 1;
-
-  // Placer les données dans la matrice
-  var bitIdx = 0;
-  var up = true;
-  for (var col2 = N-1; col2 >= 0; col2 -= 2) {
-    if (col2 === 6) col2--;
-    for (var step = 0; step < N; step++) {
-      var r2 = up ? N-1-step : step;
-      for (var c2 = 0; c2 <= 1; c2++) {
-        var mc2 = col2 - c2;
-        if (matrix[r2][mc2] === 2) {
-          var bit = bitIdx < bits.length ? bits[bitIdx++] : 0;
-          matrix[r2][mc2] = bit ^ ((r2 + mc2) % 2 === 0 ? 0 : 0); // mask 0
-        }
-      }
-    }
-    up = !up;
-  }
-
-  // Dessiner
-  ctx.fillStyle = fg || '#1d4ed8';
-  for (var row = 0; row < N; row++) {
-    for (var col3 = 0; col3 < N; col3++) {
-      if (matrix[row][col3] === 1) {
-        ctx.fillRect(margin + col3*cell, margin + row*cell, cell, cell);
-      }
-    }
-  }
-}
-
+// ── QR Code via librairie qrcodejs (CDN) ─────────────────────────
 function mlQrGenerate() {
   var codeEl = document.getElementById('cabinetCode');
   var codeVal = codeEl ? codeEl.textContent.trim() : '';
-  if (!codeVal || codeVal === '—') { setTimeout(mlQrGenerate, 1000); return; }
+  if (!codeVal || codeVal === '—') { setTimeout(mlQrGenerate, 800); return; }
 
   var url = 'https://medilinee.louis16907.workers.dev/?cabinet=' + encodeURIComponent(codeVal);
-
-  // Canvas principal
-  var cv = document.getElementById('mlQrCanvas');
-  if (cv) mlQrDraw(cv, url, '#1d4ed8', '#ffffff');
-
-  // Canvas impression
-  var cvP = document.getElementById('mlQrPrintCanvas');
-  if (cvP) mlQrDraw(cvP, url, '#1d4ed8', '#ffffff');
-
-  var printCode = document.getElementById('mlQrPrintCode');
-  if (printCode) printCode.textContent = codeVal;
-
-  window._mlQrUrl = url;
+  window._mlQrUrl  = url;
   window._mlQrCode = codeVal;
+
+  var wrap = document.getElementById('mlQrWrap');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+
+  if (typeof QRCode !== 'undefined') {
+    new QRCode(wrap, {
+      text      : url,
+      width     : 160,
+      height    : 160,
+      colorDark : '#1d4ed8',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.M
+    });
+    var printWrap = document.getElementById('mlQrPrintWrap');
+    if (printWrap) {
+      printWrap.innerHTML = '';
+      new QRCode(printWrap, {
+        text: url, width: 240, height: 240,
+        colorDark: '#1d4ed8', colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M
+      });
+    }
+    var printCode = document.getElementById('mlQrPrintCode');
+    if (printCode) printCode.textContent = codeVal;
+  } else {
+    // Fallback si lib pas chargée
+    wrap.innerHTML = '<div style="font-size:11px;color:#6b7280;padding:20px;text-align:center">QR indisponible<br><strong>' + codeVal + '</strong></div>';
+  }
 }
 
 function mlQrDownload() {
-  var cv = document.getElementById('mlQrCanvas');
-  if (!cv) return;
-  // Créer un canvas plus grand pour le download
-  var big = document.createElement('canvas');
-  big.width = 512; big.height = 512;
-  mlQrDraw(big, window._mlQrUrl || '', '#1d4ed8', '#ffffff');
+  var wrap = document.getElementById('mlQrWrap');
+  if (!wrap) return;
+  var canvas = wrap.querySelector('canvas');
+  if (!canvas) return;
   var a = document.createElement('a');
-  a.href = big.toDataURL('image/png');
+  a.href = canvas.toDataURL('image/png');
   a.download = 'qr-mediline-' + (window._mlQrCode || 'cabinet') + '.png';
   a.click();
-}
-
-function mlQrPrint() {
-  window.print();
 }
 
 window.mlQrDownload = mlQrDownload;
