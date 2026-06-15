@@ -1080,6 +1080,14 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
 .ml-cs-save{width:100%;padding:11px;background:var(--blue);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;margin-top:4px}
 .ml-cs-save:disabled{opacity:.6;cursor:not-allowed}
 .ml-cs-msg{font-size:12px;margin-top:6px;min-height:16px;text-align:center}
+
+/* ── QR Code cabinet ─────────────────────────────────────────── */
+.ml-qr-section{background:#fff;border:1.5px solid var(--border);border-radius:16px;padding:18px;margin-bottom:14px;text-align:center}
+.ml-qr-label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--blue);margin-bottom:14px;text-align:left}
+.ml-qr-btns{display:flex;gap:8px;margin-top:12px;justify-content:center}
+.ml-qr-btn{padding:9px 18px;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;border:none;font-family:inherit}
+.ml-qr-btn-blue{background:var(--blue);color:#fff}
+.ml-qr-btn-grey{background:var(--bg);color:var(--navy);border:1.5px solid var(--border)}
 </style>
 <!-- Firebase SDKs (doit charger avant le JS applicatif) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -2216,6 +2224,17 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
 
 
       <!-- ══ PERSONNALISATION PAGE CABINET ══════════════════════ -->
+      <!-- ══ QR CODE ═══════════════════════════════════════════ -->
+      <div class="ml-qr-section" id="mlQrSection">
+        <div class="ml-qr-label">📱 QR Code du cabinet</div>
+        <div id="mlQrDiv" style="display:inline-block;padding:8px;background:#fff;border-radius:10px;border:1.5px solid var(--border)"></div>
+        <div class="ml-qr-btns">
+          <button class="ml-qr-btn ml-qr-btn-blue" onclick="window.mlQrDownload()">⬇️ Télécharger</button>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:8px">Scannez pour accéder à la file d'attente</div>
+      </div>
+      <!-- ═══════════════════════════════════════════════════════ -->
+
       <div class="ml-cs" id="mlCsSection">
         <div class="ml-cs-title">🎨 Page cabinet (vue patients)</div>
         <div class="ml-cs-field">
@@ -4282,6 +4301,8 @@ function openDocDashboard(name, userData) {
 
   console.log('[ML] Dashboard publicCode:', code, '| uid:', uid_for_code);
   document.getElementById('cabinetCode').textContent = code || '—';
+  // Générer le QR avec le code unique du cabinet
+  setTimeout(function(){ if(typeof mlQrGenerate==='function') mlQrGenerate(); }, 300);
   const base = location.href.split('?')[0];
   document.getElementById('shareUrl').textContent = base + '?cabinet=' + encodeURIComponent(code) + '&view=patient';
   // Aussi sauvegarder le publicCode en DB sur l'utilisateur courant si c'est un vrai code ML-
@@ -8424,6 +8445,8 @@ async function dmInitSection() {
     section.style.display = 'none';
     var csSection = document.getElementById('mlCsSection');
     if (csSection) csSection.style.display = 'none';
+    var qrSec = document.getElementById('mlQrSection');
+    if (qrSec) qrSec.style.display = 'none';
     return;
   }
 
@@ -11812,6 +11835,90 @@ window.checkPromo = function() {
   }
 
 })();
+
+
+/* ── QR CODE CABINET ─────────────────────────────────────────────
+   Lib : qrcodejs (inline, pas de CDN) — génère un canvas QR
+   URL encodée : medilinee.../?cabinet=ML-XXXXX (unique par cabinet)
+   ─────────────────────────────────────────────────────────────── */
+
+// Tiny QR encoder — basé sur qr.js (domaine public)
+// Source : https://github.com/nicktindall/cyclon.p2p (MIT)
+window._mlQrMake = (function() {
+  // On charge qrcodejs dynamiquement une seule fois
+  var _lib = null;
+  var _pending = [];
+
+  function loadLib(cb) {
+    if (_lib) { cb(_lib); return; }
+    _pending.push(cb);
+    if (_pending.length > 1) return;
+    var s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js';
+    s.onload = function() {
+      _lib = window.QRCode;
+      _pending.forEach(function(fn){ fn(_lib); });
+      _pending = [];
+    };
+    s.onerror = function() {
+      // Fallback : charger depuis unpkg
+      var s2 = document.createElement('script');
+      s2.src = 'https://unpkg.com/qrcodejs@1.0.0/qrcode.min.js';
+      s2.onload = function() {
+        _lib = window.QRCode;
+        _pending.forEach(function(fn){ fn(_lib); });
+        _pending = [];
+      };
+      document.head.appendChild(s2);
+    };
+    document.head.appendChild(s);
+  }
+
+  return function(divId, text) {
+    loadLib(function(QRCode) {
+      if (!QRCode) return;
+      var div = document.getElementById(divId);
+      if (!div) return;
+      div.innerHTML = '';
+      new QRCode(div, {
+        text        : text,
+        width       : 160,
+        height      : 160,
+        colorDark   : '#1d4ed8',
+        colorLight  : '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M
+      });
+    });
+  };
+})();
+
+function mlQrGenerate() {
+  // Lire le code unique ML-XXXXX affiché dans le dashboard
+  var codeEl = document.getElementById('cabinetCode');
+  var code = codeEl ? codeEl.textContent.trim() : '';
+  if (!code || code === '—') {
+    // Pas encore chargé — réessayer
+    setTimeout(mlQrGenerate, 600);
+    return;
+  }
+
+  var url = 'https://medilinee.louis16907.workers.dev/?cabinet=' + encodeURIComponent(code);
+  window._mlQrUrl  = url;
+  window._mlQrCode = code;
+
+  window._mlQrMake('mlQrDiv', url);
+}
+
+window.mlQrDownload = function() {
+  var div = document.getElementById('mlQrDiv');
+  if (!div) return;
+  var canvas = div.querySelector('canvas');
+  if (!canvas) { alert('QR pas encore généré'); return; }
+  var a = document.createElement('a');
+  a.href = canvas.toDataURL('image/png');
+  a.download = 'qr-mediline-' + (window._mlQrCode || 'cabinet') + '.png';
+  a.click();
+};
 
 </script>
 
