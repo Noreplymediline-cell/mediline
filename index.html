@@ -6092,6 +6092,10 @@ function setPatientWaitTime(value, source) {
 
 // Mettre à jour p / r / retard affichés à partir d'un objet queue Firebase
 function updatePatientStatsFromQueue(docId, q) {
+  // Stocker en mémoire pour updatePatPersonalInfo et listenNamedPatients
+  if (!window._queueCache) window._queueCache = {};
+  window._queueCache[docId] = q;
+
   const patientsInfoEl = document.getElementById('patientsInfo');
   const retardInfoEl   = document.getElementById('retardInfo');
   if (patientsInfoEl) patientsInfoEl.textContent = q.p ?? 0;
@@ -6102,9 +6106,10 @@ function updatePatientStatsFromQueue(docId, q) {
 // Mise à jour légère côté patient (appellée par patLiveUiInterval)
 // NE TOUCHE PAS à #waitTime — piloté exclusivement par Firebase via setPatientWaitTime
 function updatePatientLiveUI(docId) {
-  const p_global = +localStorage.getItem(docId + '_p') || 0;
-  const r        = +localStorage.getItem(docId + '_r') || 0;
-  const namedList2   = JSON.parse(localStorage.getItem('namedPatients_' + docId) || '[]');
+  const _q = window._queueCache && window._queueCache[docId];
+  const p_global = _q ? (_q.p || _q.patients || 0) : 0;
+  const r        = _q ? (_q.r || _q.retard || 0) : 0;
+  const namedList2   = (window._namedPatsCache && window._namedPatsCache[docId]) || [];
   const namedActifs2 = namedList2.filter(isPatientStillValid).length;
   const p = Math.max(p_global, namedActifs2);
   const patientsInfoEl = document.getElementById('patientsInfo');
@@ -6431,29 +6436,27 @@ function updatePatPersonalInfo(docId, p_total, retardManuel, _unused_dur) {
   const r = +localStorage.getItem(docId + '_r') ?? retardManuel ?? 0;
   const retardGlobal = Math.max(0, r);
 
-  const key = 'namedPatients_' + docId;
-  const list = JSON.parse(localStorage.getItem(key) || '[]');
+  // Lire depuis le cache mémoire (plus localStorage)
+  const list = (window._namedPatsCache && window._namedPatsCache[docId]) || [];
   let me = list.find(pt => pt.id === myId);
 
-  // Fallback : chercher dans localStorage le patient directement (avant que Firebase réponde)
-  if (!me) {
-    const cached = localStorage.getItem('myPatient_' + myId);
-    if (cached) { try { me = JSON.parse(cached); } catch(e) {} }
+  // Fallback : cache mémoire du patient
+  if (!me && window._myPatientCache && window._myPatientCache[myId]) {
+    me = window._myPatientCache[myId];
   }
   if (!me) return;
 
-  // Mise à jour du cache patient depuis la liste Firebase (peut avoir status modifié)
+  // Mise à jour du cache mémoire patient
   const listVersion = list.find(pt => pt.id === myId);
   if (listVersion) {
     me = listVersion;
-    localStorage.setItem('myPatient_' + myId, JSON.stringify(me));
+    if (!window._myPatientCache) window._myPatientCache = {};
+    window._myPatientCache[myId] = me;
   }
 
   // Si patient expiré → nettoyer et cacher
   if (!isPatientStillValid(me) && me.statut !== 'passed') {
-    localStorage.removeItem('myPatientId');
     sessionStorage.removeItem('myPatientId');
-    localStorage.removeItem('myPatient_' + myId);
     document.getElementById('patPersonalView').style.display = 'none';
     return;
   }
@@ -6484,9 +6487,8 @@ function updatePatPersonalInfo(docId, p_total, retardManuel, _unused_dur) {
     // Masquer après 2 minutes
     setTimeout(() => {
       document.getElementById('patPersonalView').style.display = 'none';
-      localStorage.removeItem('myPatientId');
       sessionStorage.removeItem('myPatientId');
-      localStorage.removeItem('myPatient_' + myId);
+      if (window._myPatientCache) delete window._myPatientCache[myId];
     }, 2 * 60 * 1000);
     return;
   }
@@ -6666,24 +6668,22 @@ function listenNamedPatients(doctorId) {
       const list = Object.values(data);
       // Filtrer localement pour l'affichage côté patient
       const validList = list.filter(isPatientStillValid);
-      // NE PAS supprimer de Firebase côté patient — le médecin gère les suppressions.
-      // (L'ancienne purge ici supprimait des patients visibles sur d'autres appareils.)
-      localStorage.setItem('namedPatients_' + doctorId, JSON.stringify(validList));
+      // Stocker en mémoire (pas localStorage)
+      if (!window._namedPatsCache) window._namedPatsCache = {};
+      window._namedPatsCache[doctorId] = validList;
 
       // Vérifier si mon patient est toujours présent dans Firebase
-      const myId = sessionStorage.getItem('myPatientId') || localStorage.getItem('myPatientId');
+      const myId = sessionStorage.getItem('myPatientId');
       if (myId) {
         const myPatient = list.find(p => p.id === myId);
         if (myPatient) {
-          // Patient toujours là — mettre à jour le cache local
-          localStorage.setItem('myPatient_' + myId, JSON.stringify(myPatient));
+          // Patient toujours là — mettre à jour le cache mémoire
+          if (!window._myPatientCache) window._myPatientCache = {};
+          window._myPatientCache[myId] = myPatient;
         } else {
           // Patient absent de Firebase (médecin l'a supprimé) → cacher immédiatement
-          localStorage.removeItem('myPatientId');
           sessionStorage.removeItem('myPatientId');
-          localStorage.removeItem('myDoctorId');
           sessionStorage.removeItem('myDoctorId');
-          localStorage.removeItem('myPatient_' + myId);
           const pvEl = document.getElementById('patPersonalView');
           if (pvEl) pvEl.style.display = 'none';
           const rfEl = document.getElementById('patRegisterForm');
@@ -6693,15 +6693,21 @@ function listenNamedPatients(doctorId) {
       }
 
       // Rafraîchir immédiatement la carte personnelle
-      const p_global = +localStorage.getItem(doctorId + '_p') || 0;
-      const r = +localStorage.getItem(doctorId + '_r') || 0;
+      // Lire p_global et r depuis la queue Firebase en mémoire
+      const _qMem = window._queueCache && window._queueCache[doctorId];
+      const p_global = _qMem ? (_qMem.p || _qMem.patients || 0) : 0;
+      const r = _qMem ? (_qMem.r || _qMem.retard || 0) : 0;
       updatePatPersonalInfo(doctorId, p_global, r, PAT_DUREE);
     });
   } catch(e) { console.warn('[ML] listenNamedPatients:', e); }
 }
 
 async function renderDoc(name) {
-  // Sync Firebase ciblée → lecture directe sur users/{name} (pas de lecture globale)
+  // Caches mémoire
+  if (!window._queueCache)   window._queueCache   = {};
+  if (!window._usersCache)   window._usersCache   = {};
+  if (!window._cabinetsCache) window._cabinetsCache = {};
+
   try {
     const fbUserSnap = await Promise.race([
       firebase.database().ref('users/' + name).get(),
@@ -6709,66 +6715,46 @@ async function renderDoc(name) {
     ]);
     const fbUser = fbUserSnap && fbUserSnap.exists() ? fbUserSnap.val() : null;
     if (fbUser) {
+      window._usersCache[name] = fbUser;
       if (fbUser.queue) {
-        localStorage.setItem(name + '_p', fbUser.queue.p ?? 0);
-        localStorage.setItem(name + '_r', fbUser.queue.r ?? 0);
-        localStorage.setItem(name + '_ts', fbUser.queue.ts ?? Date.now());
-        if (fbUser.queue.startedAt    !== undefined) localStorage.setItem(name + '_startedAt',    fbUser.queue.startedAt);
-        if (fbUser.queue.totalMinutes !== undefined) localStorage.setItem(name + '_totalMinutes', fbUser.queue.totalMinutes);
-        else if (fbUser.queue.total   !== undefined) localStorage.setItem(name + '_totalMinutes', fbUser.queue.total);
+        window._queueCache[name] = fbUser.queue;
       }
-      if (fbUser.ai_history) {
-        localStorage.setItem(name + '_ai_history', JSON.stringify(fbUser.ai_history));
-      }
-      // Mettre à jour le cache local
-      const cached = JSON.parse(localStorage.getItem('users') || '{}');
-      cached[name] = fbUser;
-      try { localStorage.setItem('users', JSON.stringify(cached)); } catch(e) {}
       // Charger le cabinet si besoin
       const ownerUid = fbUser.billingOwner || fbUser.invitedBy || fbUser.addedBy || name;
-      const cachedCabs = JSON.parse(localStorage.getItem('cabinets') || '{}');
-      if (!cachedCabs[ownerUid]) {
+      if (!window._cabinetsCache[ownerUid]) {
         const cabSnap = await firebase.database().ref('cabinets/' + ownerUid).get().catch(() => null);
-        if (cabSnap && cabSnap.exists()) { cachedCabs[ownerUid] = cabSnap.val(); try { localStorage.setItem('cabinets', JSON.stringify(cachedCabs)); } catch(e) {} }
+        if (cabSnap && cabSnap.exists()) window._cabinetsCache[ownerUid] = cabSnap.val();
       }
     }
-  } catch(e) { /* fallback localStorage */ }
+  } catch(e) {}
 
-  const p_global = +localStorage.getItem(name + '_p') || 0;
-  const r = +localStorage.getItem(name + '_r') || 0;
+  const q = window._queueCache[name] || {};
+  const p_global = Math.max(0, Number(q.p ?? q.patients ?? 0));
+  const r = Math.max(0, Number(q.r ?? q.retard ?? 0));
 
-  // Compter les patients nommés EN ATTENTE et VALIDES pour ce médecin
-  const namedKey = 'namedPatients_' + name;
-  const namedList = JSON.parse(localStorage.getItem(namedKey) || '[]');
+  // Compter les patients nommés EN ATTENTE
+  const namedList = (window._namedPatsCache && window._namedPatsCache[name]) || [];
   const namedActifs = namedList.filter(isPatientStillValid).length;
-
-  // p effectif = max entre le compteur médecin et la liste nommée
   const p = Math.max(p_global, namedActifs);
 
-  // CALCUL TEMPS RESTANT via getRemainingWait — prend en compte startedAt
-  // Fonctionne même si le médecin est déconnecté depuis des heures
-  let w;
-  const totalMinStored   = localStorage.getItem(name + '_totalMinutes');
-  const startedAtStored  = localStorage.getItem(name + '_startedAt') ?? localStorage.getItem(name + '_ts');
-  if (totalMinStored !== null) {
-    const fakeQ = { totalMinutes: +totalMinStored, startedAt: startedAtStored ? +startedAtStored : Date.now() };
+  // Calcul temps restant
+  let w = null;
+  if (q.totalMinutes !== undefined || q.total !== undefined) {
+    const fakeQ = {
+      totalMinutes: q.totalMinutes ?? q.total ?? 0,
+      startedAt: q.startedAt ?? q.ts ?? Date.now()
+    };
     w = getRemainingWait(fakeQ);
-    console.log('RENDERdoc_REMAINING', name, w, '(base:', totalMinStored, 'startedAt:', startedAtStored, ')');
-  } else {
-    // Pas encore de données Firebase → "Chargement…"
-    w = null;
   }
 
-  const users = JSON.parse(localStorage.getItem('users')) || {};
-  const cabs = JSON.parse(localStorage.getItem('cabinets')) || {};
-  const user = users[name] || Object.values(users).find(u => u.doctorId === name) || null;
-  const cab = user && cabs[user.cabinetCode] || { name: '' };
+  const user = window._usersCache[name] || null;
+  const ownerUid2 = user ? (user.billingOwner || user.invitedBy || user.addedBy || name) : name;
+  const cab = (window._cabinetsCache[ownerUid2]) || { name: '' };
+
   document.getElementById('docName').textContent = (user && user.displayName) || name;
-  document.getElementById('heroCabinet').textContent = cab.name;
+  document.getElementById('heroCabinet').textContent = cab.name || '';
 
-  // Écriture #waitTime uniquement via setPatientWaitTime — jamais directement
   setPatientWaitTime(w, 'renderDoc');
-
   document.getElementById('patientsInfo').textContent = p;
   document.getElementById('retardInfo').textContent = r > 0 ? r + ' min' : '0 min';
 
@@ -6778,7 +6764,6 @@ async function renderDoc(name) {
   renderReviews(name).catch(function(){});
   patTs();
 
-  // Recalculer info personnelle si patient enregistré
   updatePatPersonalInfo(name, p, r, PAT_DUREE);
 }
 
@@ -10061,8 +10046,8 @@ function mlKeepAlive() {
       await db().ref('namedPatients/' + selectedDoctorId + '/' + patientId).set(patient);
 
       try {
-        localStorage.setItem('myPatientId', patientId);
-        localStorage.setItem('myDoctorId', selectedDoctorId);
+        sessionStorage.setItem('myPatientId', patientId);
+        sessionStorage.setItem('myDoctorId', selectedDoctorId);
         localStorage.setItem('myPatient_' + patientId, JSON.stringify(patient));
         sessionStorage.setItem('myPatientId', patientId);
         sessionStorage.setItem('myDoctorId', selectedDoctorId);
