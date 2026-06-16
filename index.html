@@ -861,15 +861,43 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
 .pat-btn-del{padding:5px 9px;border-radius:7px;border:1px solid var(--border);background:transparent;color:var(--faint);font-size:11px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;transition:all .15s}
 .pat-btn-del:hover{border-color:var(--red);color:var(--red)}
 /* Formulaire enregistrement patient */
-.pat-register-form{background:#fff;border-radius:16px;border:1.5px solid var(--border);padding:20px;margin:14px 0;box-shadow:var(--sh-s)}
-.pat-register-form h3{font-size:15px;font-weight:800;color:var(--navy);margin-bottom:4px}
-.pat-register-form p{font-size:12px;color:var(--muted);margin-bottom:16px}
-.pat-reg-field{margin-bottom:12px}
-.pat-reg-field label{display:block;font-size:11px;font-weight:700;color:var(--ink2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.04em}
-.pat-reg-field input,.pat-reg-field select{width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-family:'Outfit',sans-serif;color:var(--ink);background:var(--bg);outline:none;transition:border-color .18s}
-.pat-reg-field input:focus,.pat-reg-field select:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.1);background:#fff}
-.pat-reg-submit{width:100%;padding:13px;border-radius:11px;border:none;background:linear-gradient(135deg,var(--blue),var(--blue3));color:#fff;font-size:14px;font-family:'Outfit',sans-serif;font-weight:800;cursor:pointer;transition:all .18s;margin-top:4px}
-.pat-reg-submit:hover{transform:translateY(-1px);box-shadow:0 6px 20px var(--blue-glow)}
+/* ── Formulaire enregistrement patient ── */
+.pat-register-form{background:#fff;border-radius:20px;border:none;padding:0;margin:14px 0;overflow:hidden;box-shadow:0 4px 24px rgba(37,99,235,.08),0 1px 4px rgba(0,0,0,.06)}
+.pat-reg-header{background:linear-gradient(135deg,#e8f0fe 0%,#f0f7ff 100%);padding:22px 20px 18px;border-bottom:1px solid #dbeafe}
+.pat-reg-header-icon{font-size:28px;margin-bottom:6px;display:block}
+.pat-register-form h3{font-size:16px;font-weight:800;color:#1e3a6e;margin:0 0 3px;letter-spacing:-.01em}
+.pat-register-form p{font-size:12px;color:#64748b;margin:0;line-height:1.5}
+.pat-reg-body{padding:18px 20px 20px}
+.pat-reg-field{margin-bottom:14px}
+.pat-reg-field label{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#475569;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em}
+.pat-reg-field label svg{opacity:.6}
+.pat-reg-field input,.pat-reg-field select{width:100%;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:12px;font-size:14px;font-family:'Outfit',sans-serif;color:#1e293b;background:#f8faff;outline:none;transition:all .18s;box-sizing:border-box}
+.pat-reg-field input:focus,.pat-reg-field select:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.12);background:#fff}
+.pat-reg-field input::placeholder{color:#94a3b8}
+.pat-reg-submit{width:100%;padding:14px;border-radius:12px;border:none;background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;font-size:14px;font-family:'Outfit',sans-serif;font-weight:800;cursor:pointer;transition:all .2s;margin-top:6px;letter-spacing:.01em;box-shadow:0 4px 14px rgba(37,99,235,.3)}
+.pat-reg-submit:active{transform:scale(.98);box-shadow:0 2px 8px rgba(37,99,235,.2)}
+.pat-reg-skip{text-align:center;margin-top:14px;padding-top:14px;border-top:1px solid #f1f5f9}
+
+/* ── Vue après enregistrement ── */
+.pat-personal-info{background:#fff;border-radius:20px;border:none;overflow:hidden;margin-bottom:14px;box-shadow:0 4px 24px rgba(37,99,235,.08),0 1px 4px rgba(0,0,0,.06)}
+.ppi-header{background:linear-gradient(135deg,#1e3a6e,#2563eb);padding:18px 20px;color:#fff}
+.ppi-header-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;opacity:.75;margin-bottom:2px}
+.ppi-header-name{font-size:18px;font-weight:800;letter-spacing:-.01em}
+.ppi-position-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.15);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;margin-top:10px;backdrop-filter:blur(4px)}
+.ppi-cards{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:#f1f5f9}
+.ppi-card{background:#fff;padding:14px 16px;text-align:center}
+.ppi-card-label{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+.ppi-card-val{font-size:20px;font-weight:800;color:#1e3a6e;line-height:1.1}
+.ppi-card-val.highlight{color:#2563eb}
+.ppi-card-val.good{color:#059669}
+.ppi-card-val.warn{color:#d97706}
+.ppi-card.full{grid-column:1/-1;background:#f8faff;border-top:1px solid #f1f5f9}
+.ppi-card.full .ppi-card-val{font-size:14px;font-weight:700;color:#374151}
+.ppi-rows{padding:0 4px 4px}
+.ppi-row{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:10px;font-size:13px;margin-bottom:2px;background:#f8faff}
+.ppi-row:last-child{margin-bottom:0}
+.ppi-label{color:#64748b;font-weight:600}
+.ppi-val{color:#1e293b;font-weight:700}
 /* Info perso patient */
 .pat-personal-info{background:#fff;border-radius:16px;border:1px solid var(--border);padding:16px;margin-bottom:14px;box-shadow:var(--sh-s)}
 .ppi-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
@@ -2396,36 +2424,79 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
 
       <!-- Formulaire d'enregistrement patient -->
       <div id="patRegisterForm" class="pat-register-form">
-        <h3>🏥 Enregistrez votre arrivée</h3>
-        <p>Pour connaître votre position personnelle dans la file d'attente</p>
-        <div class="pat-reg-field">
-          <label>Prénom &amp; Nom</label>
-          <input type="text" id="patRegName" placeholder="Ex : Jean Dupont">
+        <div class="pat-reg-header">
+          <span class="pat-reg-header-icon">🏥</span>
+          <h3>Enregistrez votre arrivée</h3>
+          <p>Suivez votre position dans la file et recevez une estimation personnalisée</p>
         </div>
-        <div class="pat-reg-field">
-          <label>Heure de rendez-vous</label>
-          <input type="time" id="patRegHeure" style="width:auto;min-width:130px;max-width:160px;text-align:center;font-size:16px;font-weight:600;letter-spacing:.03em">
+        <div class="pat-reg-body">
+          <div class="pat-reg-field">
+            <label>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              Prénom &amp; Nom
+            </label>
+            <input type="text" id="patRegName" placeholder="Ex : Jean Dupont" autocomplete="name">
+          </div>
+          <div class="pat-reg-field">
+            <label>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+              Heure de rendez-vous
+            </label>
+            <input type="time" id="patRegHeure" style="width:auto;min-width:130px;max-width:160px;text-align:center;font-size:16px;font-weight:700;letter-spacing:.03em">
+          </div>
+          <div class="pat-reg-field" id="patRegDocField" style="display:none">
+            <label>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              Médecin
+            </label>
+            <select id="patRegDoc"></select>
+          </div>
+          <button class="pat-reg-submit" onclick="patRegisterPatient()">Confirmer mon arrivée</button>
+          <div id="patRegMsg" style="font-size:12px;color:#ef4444;margin-top:8px;min-height:16px;text-align:center"></div>
+          <div class="pat-reg-skip">
+            <span onclick="patSkipRegister()" style="font-size:12px;color:#64748b;cursor:pointer;font-weight:600">Consulter sans m'identifier →</span>
+          </div>
         </div>
-        <div class="pat-reg-field" id="patRegDocField" style="display:none">
-          <label>Médecin</label>
-          <select id="patRegDoc"></select>
-        </div>
-        <button class="pat-reg-submit" onclick="patRegisterPatient()">✅ Confirmer mon arrivée →</button>
-        <div id="patRegMsg" style="font-size:12px;color:var(--red);margin-top:8px;min-height:16px"></div>
-        <div style="text-align:center;margin-top:10px"><span onclick="patSkipRegister()" style="font-size:12px;color:var(--blue);cursor:pointer;font-weight:600">Consulter sans m'identifier →</span></div>
       </div>
 
       <!-- Vue personnalisée patient identifié -->
       <div id="patPersonalView" style="display:none">
         <div class="pat-personal-info">
-          <div style="font-size:12px;font-weight:800;color:var(--navy);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">📋 Votre rendez-vous</div>
-          <div class="ppi-row"><span class="ppi-label">Patient</span><span class="ppi-val" id="ppiName">—</span></div>
-          <div class="ppi-row"><span class="ppi-label">Heure RDV</span><span class="ppi-val" id="ppiHeureRdv">—</span></div>
-          <div class="ppi-row"><span class="ppi-label">Position dans la file</span><span class="ppi-val" id="ppiPosition">—</span></div>
-          <div class="ppi-row"><span class="ppi-label">Patients avant vous</span><span class="ppi-val" id="ppiAvant">—</span></div>
-          <div class="ppi-row"><span class="ppi-label">Passage estimé</span><span class="ppi-val" id="ppiPassage">—</span></div>
-          <div class="ppi-row"><span class="ppi-label">Attente restante</span><span class="ppi-val" id="ppiAttente">—</span></div>
-          <div class="ppi-row"><span class="ppi-label">Retard sur votre RDV</span><span class="ppi-val amber" id="ppiRetard">—</span></div>
+          <!-- En-tête avec nom et position -->
+          <div class="ppi-header">
+            <div class="ppi-header-title">Votre rendez-vous</div>
+            <div class="ppi-header-name" id="ppiName">—</div>
+            <div class="ppi-position-badge">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+              <span id="ppiPosition">—</span> dans la file
+            </div>
+          </div>
+          <!-- Cartes KPI -->
+          <div class="ppi-cards">
+            <div class="ppi-card">
+              <div class="ppi-card-label">Patients avant vous</div>
+              <div class="ppi-card-val highlight" id="ppiAvant">—</div>
+            </div>
+            <div class="ppi-card">
+              <div class="ppi-card-label">Attente estimée</div>
+              <div class="ppi-card-val highlight" id="ppiAttente">—</div>
+            </div>
+            <div class="ppi-card">
+              <div class="ppi-card-label">Passage estimé</div>
+              <div class="ppi-card-val" id="ppiPassage">—</div>
+            </div>
+            <div class="ppi-card">
+              <div class="ppi-card-label">Retard sur RDV</div>
+              <div class="ppi-card-val good" id="ppiRetard">—</div>
+            </div>
+          </div>
+          <!-- Détails discrets -->
+          <div class="ppi-rows">
+            <div class="ppi-row">
+              <span class="ppi-label">🕐 Heure RDV</span>
+              <span class="ppi-val" id="ppiHeureRdv">—</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -6368,7 +6439,10 @@ function updatePatPersonalInfo(docId, p_total, retardManuel, _unused_dur) {
     document.getElementById('ppiAvant').textContent = '0';
     document.getElementById('ppiPassage').textContent = '—';
     const attenteEl = document.getElementById('ppiAttente');
-    if (attenteEl) attenteEl.textContent = '🔔 C\'est votre tour !';
+    if (attenteEl) {
+      attenteEl.textContent = '🔔 Votre tour !';
+      attenteEl.className = 'ppi-card-val highlight';
+    }
     document.getElementById('ppiRetard').textContent = '—';
     document.getElementById('patPersonalView').style.display = 'block';
     // Son + vibration quand c'est le tour
@@ -6464,12 +6538,25 @@ function updatePatPersonalInfo(docId, p_total, retardManuel, _unused_dur) {
 
   const attenteEl = document.getElementById('ppiAttente');
   if (attenteEl) {
-    attenteEl.textContent = attenteRestante > 0 ? attenteRestante + ' min' : '🔔 À votre tour bientôt';
+    if (attenteRestante > 0) {
+      attenteEl.textContent = attenteRestante + ' min';
+      attenteEl.className = attenteRestante <= 15 ? 'ppi-card-val good' : 'ppi-card-val highlight';
+    } else {
+      attenteEl.textContent = '🔔 Bientôt';
+      attenteEl.className = 'ppi-card-val good';
+    }
   }
 
-  document.getElementById('ppiRetard').textContent = retardSurRdv > 0
-    ? retardSurRdv + ' min'
-    : '✅ À l\'heure';
+  const retardEl = document.getElementById('ppiRetard');
+  if (retardEl) {
+    if (retardSurRdv > 0) {
+      retardEl.textContent = '+' + retardSurRdv + ' min';
+      retardEl.className = 'ppi-card-val warn';
+    } else {
+      retardEl.textContent = 'À l\'heure';
+      retardEl.className = 'ppi-card-val good';
+    }
+  }
 
   document.getElementById('patPersonalView').style.display = 'block';
 }
