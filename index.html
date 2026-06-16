@@ -6429,14 +6429,14 @@ function updatePatPersonalInfo(docId, p_total, retardManuel, _unused_dur) {
   }).length;
   const namedTotal = namedWaiting.length;
 
-  // Patients anonymes (sans enregistrement) répartis proportionnellement
+  // Patients anonymes = patients comptés par le médecin mais non enregistrés
+  // Le médecin les reçoit dans l'ordre d'arrivée — ils sont TOUS devant les enregistrés
+  // car le médecin ajoute +5/+10/+15 pour chaque patient qu'il reçoit au moment où il les reçoit
   const anonymes = Math.max(0, (Number(p_total) || 0) - namedTotal);
-  let anonymesAvant = 0;
-  if (anonymes > 0 && namedTotal > 1) {
-    anonymesAvant = Math.round(anonymes * namedAvant / (namedTotal - 1));
-  } else if (anonymes > 0) {
-    anonymesAvant = anonymes;
-  }
+
+  // Tous les anonymes sont devant tous les patients enregistrés
+  // (le médecin a cliqué +X pour ces patients non enregistrés qu'il reçoit maintenant)
+  const anonymesAvant = anonymes;
 
   const patientsAvant = namedAvant + anonymesAvant;
   const position = patientsAvant + 1;
