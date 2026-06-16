@@ -9174,7 +9174,13 @@ async function dmToggleStatus(doctorUid, newStatus) {
 
     // Écriture ciblée users/{doctorUid} — jamais écriture globale
     console.log('WRITE PATH', 'users/' + doctorUid, '| disabled:', newStatus === 'disabled');
-    await fbUpdateUserByUid(doctorUid, { disabled: newStatus === 'disabled', status: newStatus, statusUpdatedAt: Date.now() })
+    // Firebase RTDB rejette les booléens dans certains contextes — utiliser 0/1
+    var isDisabled = newStatus === 'disabled';
+    var patch = {};
+    patch.status = newStatus;
+    patch.statusUpdatedAt = Date.now();
+    patch.disabled = isDisabled ? 1 : 0;
+    await fbUpdateUserByUid(doctorUid, patch)
           .catch(function(e){ console.error('[ML] dmToggleStatus write users/'+doctorUid, e.code, e.message); });
     if (allUsers[doctorUid]) {
       allUsers[doctorUid].disabled = newStatus === 'disabled';
