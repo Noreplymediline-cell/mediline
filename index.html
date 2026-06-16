@@ -6408,24 +6408,33 @@ function updatePatPersonalInfo(docId, p_total, retardManuel, _unused_dur) {
   }
 
   // Patients nommés valides et en attente pour ce médecin
-  const namedWaiting = list.filter(pt =>
-    isPatientStillValid(pt) &&
-    (pt.doctorId === docId || pt.doctorId === patCurrentDoc)
-  );
-  const namedAvant = namedWaiting.filter(pt => (pt.heureRdv || pt.appointmentTime || '') < (me.heureRdv || me.appointmentTime || '')).length;
-  const namedTotal = namedWaiting.length; // inclut moi-même
+  const namedWaiting = list.filter(function(pt) {
+    return isPatientStillValid(pt) &&
+      (pt.doctorId === docId || pt.doctorId === patCurrentDoc) &&
+      (pt.statut === 'waiting' || pt.status === 'waiting' || (!pt.statut && !pt.status));
+  });
 
-  // Patients anonymes = p_total - namedTotal (ceux qui n'ont pas scanné)
-  // On estime qu'ils sont répartis uniformément dans la file
-  // Leur nombre "avant moi" = proportionnel à ma position parmi les nommés
-  const anonymes = Math.max(0, p_total - namedTotal);
+  // Clé de tri : createdAt (timestamp arrivée) → ordre réel dans la file
+  // Fallback : heureRdv si pas de createdAt
+  function patientSortKey(pt) {
+    if (pt.createdAt) return Number(pt.createdAt);
+    const h = pt.heureRdv || pt.appointmentTime || '99:99';
+    const parts = h.split(':');
+    return (Number(parts[0]) || 0) * 60 + (Number(parts[1]) || 0);
+  }
+
+  const myKey = patientSortKey(me);
+  const namedAvant = namedWaiting.filter(function(pt) {
+    return pt.id !== myId && patientSortKey(pt) < myKey;
+  }).length;
+  const namedTotal = namedWaiting.length;
+
+  // Patients anonymes (sans enregistrement) répartis proportionnellement
+  const anonymes = Math.max(0, (Number(p_total) || 0) - namedTotal);
   let anonymesAvant = 0;
-  if (anonymes > 0 && namedTotal > 0) {
-    // Position relative de Jean parmi les nommés : namedAvant / (namedTotal - 1) si > 1
-    const ratio = namedTotal > 1 ? namedAvant / (namedTotal - 1) : 0;
-    anonymesAvant = Math.round(anonymes * ratio);
+  if (anonymes > 0 && namedTotal > 1) {
+    anonymesAvant = Math.round(anonymes * namedAvant / (namedTotal - 1));
   } else if (anonymes > 0) {
-    // Seul patient nommé, anonymes tous potentiellement devant
     anonymesAvant = anonymes;
   }
 
