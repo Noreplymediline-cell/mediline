@@ -1086,6 +1086,83 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script>
+/* ══════════════════════════════════════════════════════════════
+   MEDILINE — Suppression localStorage
+   Toutes les données → Firebase ou sessionStorage
+   ══════════════════════════════════════════════════════════════ */
+(function() {
+  // Clés qui vont en sessionStorage (session courante uniquement)
+  var SESSION_KEYS = {
+    'ml_session': 1,
+    'myPatientId': 1,
+    'myDoctorId': 1
+  };
+
+  // Clés à ignorer complètement (caches Firebase — on lit Firebase directement)
+  var IGNORE_KEYS = {
+    'users': 1,
+    'cabinets': 1
+  };
+
+  // Préfixes à ignorer (caches dynamiques Firebase)
+  var IGNORE_PREFIXES = [
+    'namedPatients_',
+    'myPatient_',
+    'reviews_',
+    '_queueFinal'
+  ];
+
+  function shouldIgnore(key) {
+    if (!key) return false;
+    if (IGNORE_KEYS[key]) return true;
+    for (var i = 0; i < IGNORE_PREFIXES.length; i++) {
+      if (String(key).indexOf(IGNORE_PREFIXES[i]) === 0 ||
+          String(key).indexOf(IGNORE_PREFIXES[i]) > 0) return true;
+    }
+    return false;
+  }
+
+  var _ss = window.sessionStorage;
+
+  var _proxy = {
+    getItem: function(key) {
+      if (shouldIgnore(key)) return null;
+      return _ss.getItem(key);
+    },
+    setItem: function(key, val) {
+      if (shouldIgnore(key)) return;
+      _ss.setItem(key, val);
+    },
+    removeItem: function(key) {
+      if (shouldIgnore(key)) return;
+      _ss.removeItem(key);
+    },
+    clear: function() { _ss.clear(); },
+    key: function(i) { return _ss.key(i); },
+    get length() { return _ss.length; }
+  };
+
+  // Remplacer localStorage par le proxy
+  try {
+    Object.defineProperty(window, 'localStorage', {
+      get: function() { return _proxy; },
+      configurable: true
+    });
+    console.log('[ML] localStorage → sessionStorage proxy actif');
+  } catch(e) {
+    console.warn('[ML] Proxy localStorage impossible:', e.message);
+  }
+
+  // Nettoyer l'ancien localStorage réel
+  try {
+    var _real = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(window), 'localStorage');
+    if (_real && _real.get) {
+      var realLS = _real.get.call(window);
+      ['users','cabinets'].forEach(function(k){ try{ realLS.removeItem(k); }catch(e){} });
+    }
+  } catch(e) {}
+})();
+
 (function() {
   var cfg = {
     apiKey: "AIzaSyBLc4xKsBshDGQFQI-7dYScEsdqKxJGNIQ",
@@ -2041,7 +2118,7 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
       <!-- Duration -->
       <div class="dur-row">
         <span>⏱ Durée par consultation</span>
-        <input type="number" id="dureeInput" value="15" min="5" max="90" onchange="docDuree=Math.max(5,+this.value);document.getElementById('dureeLabel').textContent=docDuree;if(docCurrentUser)localStorage.setItem(docCurrentUser+'_duree',docDuree);docUpdate()">
+        <input type="number" id="dureeInput" value="15" min="5" max="90" onchange="docDuree=Math.max(5,+this.value);document.getElementById('dureeLabel').textContent=docDuree;if(docCurrentUser&&window.firebase)firebase.database().ref('cabinets/'+docCurrentUser+'/prefs/duree').set(docDuree).catch(function(){});docUpdate()">
         <span style="font-size:12px;color:var(--faint)">min</span>
       </div>
 
@@ -4334,9 +4411,19 @@ function openDocDashboard(name, userData) {
   const gl = userData ? (userData.googleLink || '') : '';
   document.getElementById('googleLinkInput').value = gl;
   document.getElementById('googleOk').style.display = gl ? 'block' : 'none';
-  docDuree = Number(localStorage.getItem(docCurrentUser + '_duree') || 15);
-  document.getElementById('dureeInput').value = docDuree;
-  document.getElementById('dureeLabel').textContent = docDuree;
+  // Restaurer la durée depuis Firebase
+  docDuree = 15;
+  firebase.database().ref('cabinets/' + docCurrentUser + '/prefs/duree').once('value')
+    .then(function(snap) {
+      if (snap && snap.exists()) {
+        docDuree = Math.max(5, Number(snap.val()) || 15);
+      }
+      document.getElementById('dureeInput').value = docDuree;
+      document.getElementById('dureeLabel').textContent = docDuree;
+    }).catch(function() {
+      document.getElementById('dureeInput').value = 15;
+      document.getElementById('dureeLabel').textContent = 15;
+    });
   document.getElementById('dureeLabel').textContent = 15;
 
   // ── Bannière essai ────────────────────────────────────────────────────
@@ -5590,6 +5677,15 @@ async function openCabinet(code) {
     // Pré-charger les reviews dans le cache pour l'affichage immédiat
     getRevs(code).catch(function(){});
 
+    // Charger les durées des médecins pour le calcul personnalisé
+    firebase.database().ref('cabinets/' + code + '/prefs').once('value')
+      .then(function(snap) {
+        if (!window._mlDocDurees) window._mlDocDurees = {};
+        if (snap && snap.exists() && snap.val().duree) {
+          window._mlDocDurees[code] = snap.val().duree;
+        }
+      }).catch(function(){});
+
     firebase.database().ref('cabinets/' + code + '/custom').get()
       .then(function(snap) {
         var custom = (snap && snap.exists()) ? snap.val() : {};
@@ -6436,7 +6532,8 @@ function updatePatPersonalInfo(docId, p_total, retardManuel, _unused_dur) {
 
   // ── Temps personnalisé par position ────────────────────────────
   // attentePersonnalisee = retardGlobal + (patientsAvant × dureeConsultation)
-  const dureeConsult = Math.max(5, Number(localStorage.getItem(docId + '_duree') || docDuree || 15));
+  // Durée depuis window._mlDocDuree (synchronisé depuis Firebase au chargement)
+  const dureeConsult = Math.max(5, window._mlDocDurees && window._mlDocDurees[docId] ? Number(window._mlDocDurees[docId]) : (docDuree || 15));
   const attentePersonnalisee = retardGlobal + patientsAvant * dureeConsult;
 
   // passageEstime = maintenant + attentePersonnalisee
