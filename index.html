@@ -6432,19 +6432,20 @@ function updatePatPersonalInfo(docId, p_total, retardManuel, _unused_dur) {
   const patientsAvant = namedAvant + anonymesAvant;
   const position = patientsAvant + 1;
 
-  // passageEstime = heureRDV + retardGlobal (spec §4)
+  // Temps personnalisé : retardGlobal + (patientsAvant × duréeMoyenne)
   const heureRdvStr2 = me.heureRdv || me.appointmentTime || '00:00';
-  const [rh, rm] = heureRdvStr2.split(':').map(Number);
-  const rdvDate = new Date();
-  rdvDate.setHours(rh, rm, 0, 0);
-  const passageDate = new Date(rdvDate.getTime() + retardGlobal * 60000);
+  const dureeConsult = Math.max(1, Number(docDuree) || 15);
+  const attentePersonnalisee = Math.max(0, (Number(retardGlobal) || 0) + patientsAvant * dureeConsult);
+
+  // Heure de passage estimée = maintenant + attentePersonnalisee
+  const passageDate = new Date(Date.now() + attentePersonnalisee * 60000);
   const passageStr = passageDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
-  // attenteRestante = passageEstime - maintenant (jamais négatif)
-  const attenteRestante = Math.max(0, Math.round((passageDate - Date.now()) / 60000));
+  // attenteRestante = attentePersonnalisee (déjà en minutes depuis maintenant)
+  const attenteRestante = attentePersonnalisee;
 
-  // retardSurRDV = passageEstime - heureRDV = retardGlobal (jamais négatif)
-  const retardSurRdv = Math.max(0, retardGlobal);
+  // retardSurRDV = retardGlobal seul (affiché séparément)
+  const retardSurRdv = Math.max(0, Number(retardGlobal) || 0);
 
   document.getElementById('ppiName').textContent = me.nom || me.name || '';
   document.getElementById('ppiHeureRdv').textContent = heureRdvStr2;
