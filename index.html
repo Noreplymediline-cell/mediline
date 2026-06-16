@@ -2041,7 +2041,7 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
       <!-- Duration -->
       <div class="dur-row">
         <span>⏱ Durée par consultation</span>
-        <input type="number" id="dureeInput" value="15" min="5" max="90" onchange="docDuree=Math.max(5,+this.value);document.getElementById('dureeLabel').textContent=docDuree;docUpdate()">
+        <input type="number" id="dureeInput" value="15" min="5" max="90" onchange="docDuree=Math.max(5,+this.value);document.getElementById('dureeLabel').textContent=docDuree;if(docCurrentUser)localStorage.setItem(docCurrentUser+'_duree',docDuree);docUpdate()">
         <span style="font-size:12px;color:var(--faint)">min</span>
       </div>
 
@@ -4334,7 +4334,9 @@ function openDocDashboard(name, userData) {
   const gl = userData ? (userData.googleLink || '') : '';
   document.getElementById('googleLinkInput').value = gl;
   document.getElementById('googleOk').style.display = gl ? 'block' : 'none';
-  docDuree = 15; document.getElementById('dureeInput').value = 15;
+  docDuree = Number(localStorage.getItem(docCurrentUser + '_duree') || 15);
+  document.getElementById('dureeInput').value = docDuree;
+  document.getElementById('dureeLabel').textContent = docDuree;
   document.getElementById('dureeLabel').textContent = 15;
 
   // ── Bannière essai ────────────────────────────────────────────────────
@@ -6432,18 +6434,21 @@ function updatePatPersonalInfo(docId, p_total, retardManuel, _unused_dur) {
   const patientsAvant = namedAvant + anonymesAvant;
   const position = patientsAvant + 1;
 
-  // passageEstime = heureRDV + retardGlobal (spec §4)
-  const heureRdvStr2 = me.heureRdv || me.appointmentTime || '00:00';
-  const [rh, rm] = heureRdvStr2.split(':').map(Number);
-  const rdvDate = new Date();
-  rdvDate.setHours(rh, rm, 0, 0);
-  const passageDate = new Date(rdvDate.getTime() + retardGlobal * 60000);
+  // ── Temps personnalisé par position ────────────────────────────
+  // attentePersonnalisee = retardGlobal + (patientsAvant × dureeConsultation)
+  const dureeConsult = Math.max(5, Number(localStorage.getItem(docId + '_duree') || docDuree || 15));
+  const attentePersonnalisee = retardGlobal + patientsAvant * dureeConsult;
+
+  // passageEstime = maintenant + attentePersonnalisee
+  const passageDate = new Date(Date.now() + attentePersonnalisee * 60000);
   const passageStr = passageDate.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
-  // attenteRestante = passageEstime - maintenant (jamais négatif)
-  const attenteRestante = Math.max(0, Math.round((passageDate - Date.now()) / 60000));
+  const heureRdvStr2 = me.heureRdv || me.appointmentTime || '00:00';
 
-  // retardSurRDV = passageEstime - heureRDV = retardGlobal (jamais négatif)
+  // attenteRestante = attentePersonnalisee (déjà en minutes à partir de maintenant)
+  const attenteRestante = Math.max(0, attentePersonnalisee);
+
+  // retardSurRDV = retardGlobal (retard du médecin, indépendant de la position)
   const retardSurRdv = Math.max(0, retardGlobal);
 
   document.getElementById('ppiName').textContent = me.nom || me.name || '';
