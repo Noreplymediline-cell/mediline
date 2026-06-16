@@ -4282,7 +4282,6 @@ function openDocDashboard(name, userData) {
 
   console.log('[ML] Dashboard publicCode:', code, '| uid:', uid_for_code);
   document.getElementById('cabinetCode').textContent = code || '—';
-
   const base = location.href.split('?')[0];
   document.getElementById('shareUrl').textContent = base + '?cabinet=' + encodeURIComponent(code) + '&view=patient';
   // Aussi sauvegarder le publicCode en DB sur l'utilisateur courant si c'est un vrai code ML-
@@ -8425,7 +8424,6 @@ async function dmInitSection() {
     section.style.display = 'none';
     var csSection = document.getElementById('mlCsSection');
     if (csSection) csSection.style.display = 'none';
-
     return;
   }
 
@@ -9127,53 +9125,32 @@ function dmDoctorRowHTML(doc) {
 async function dmDeleteDoctor(doctorUid, doctorName) {
   if (!docCurrentUser) return;
 
-  // doctorUid peut être un vrai UID ou une clé invite_xxx
-  if (!doctorUid) {
-    showToast('❌ Impossible : identifiant du médecin introuvable.', 'red');
-    return;
-  }
-
   if (!confirm('Supprimer ' + doctorName + ' ? Cette action est irréversible.')) return;
 
-  // Résoudre le cabinetId (toujours = docCurrentUser pour le owner)
-  const cabinetId = docCurrentUser;
+  // Résoudre le cabinetId
   const allUsers = JSON.parse(localStorage.getItem('users') || '{}');
+  const ownerData = allUsers[docCurrentUser] || await fbGetUserByUid(docCurrentUser).catch(() => null);
+  const cabinetId = (ownerData && (ownerData.cabinetId || ownerData.cabinetCode)) || docCurrentUser;
 
-  console.log('[DM] Suppression:', doctorUid, '| cabinet:', cabinetId);
-
-  const ref = firebase.database().ref;
   try {
-    // 1. Supprimer de cabinets/{cabinetId}/doctors/{doctorUid}
-    await ref('cabinets/' + cabinetId + '/doctors/' + doctorUid).remove();
-    console.log('[DM] Supprimé doctors node');
+    // Supprimer de cabinets/{cabinetId}/doctors/{doctorUid}
+    await firebase.database().ref('cabinets/' + cabinetId + '/doctors/' + doctorUid).remove();
 
-    // 2. Supprimer invitations/{doctorUid} si existe
-    await ref('invitations/' + doctorUid).remove().catch(() => {});
+    // Supprimer de users/{doctorUid} (nouveau chemin)
+    await firebase.database().ref('users/' + doctorUid).remove().catch(() => {});
 
-    // 3. Nettoyer users/{doctorUid} — supprimer les champs d'appartenance
-    //    Firebase RTDB n'accepte pas null dans update(), on utilise remove() par champ
-    if (!doctorUid.startsWith('invite_')) {
-      var userRef = firebase.database().ref('users/' + doctorUid);
-      await Promise.all([
-        userRef.child('addedBy').remove(),
-        userRef.child('invitedBy').remove(),
-        userRef.child('billingOwner').remove(),
-        userRef.child('cabinetId').remove()
-      ]).catch(function(){});
-    }
-
-    // 4. Nettoyer localStorage
+    // Supprimer du nœud plat legacy
     if (allUsers[doctorUid]) {
       delete allUsers[doctorUid];
       try { localStorage.setItem('users', JSON.stringify(allUsers)); } catch(e) {}
     }
 
     showToast('🗑 ' + doctorName + ' supprimé.', '');
-    await dmLoadAndRender();
+    dmLoadAndRender();
     dmRenderPlanInfo();
   } catch(e) {
-    console.error('[ML] dmDeleteDoctor erreur:', e.code || e.message);
-    showToast('❌ Erreur : ' + (e.message || 'suppression impossible'), 'red');
+    console.error('[ML] dmDeleteDoctor:', e);
+    showToast('❌ Erreur lors de la suppression.', '');
   }
 }
 
@@ -11835,12 +11812,6 @@ window.checkPromo = function() {
   }
 
 })();
-
-
-
-
-
-
 
 </script>
 
