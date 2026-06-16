@@ -5510,32 +5510,64 @@ async function submitCode() {
   }
   msg.textContent = 'Recherche en cours…'; msg.className = 'code-msg';
 
-  // Utiliser le cache localStorage + résolution directe ciblée (sans lecture globale)
+  // Résolution du code cabinet — sans localStorage (proxy désactivé)
   const codeNorm = code.replace(/-/g, '').toUpperCase();
   let fbCabs = {}, fbUsers = {};
+
+  // 1. Chercher dans tous les users Firebase dont publicCode/doctorCode/cabinetCode = codeNorm
+  //    On fait une requête indexée sur publicCode
   try {
-    fbCabs = JSON.parse(localStorage.getItem('cabinets') || '{}');
-    fbUsers = JSON.parse(localStorage.getItem('users') || '{}');
+    const usersSnap = await firebase.database().ref('users')
+      .orderByChild('publicCode').equalTo(code).get().catch(() => null);
+    if (usersSnap && usersSnap.exists()) {
+      usersSnap.forEach(function(child) { fbUsers[child.key] = child.val(); });
+    }
   } catch(e) {}
 
-  // Tentative de résolution directe Firebase (lecture ciblée sur le code saisi)
-  try {
-    const [cabSnap, userSnap] = await Promise.all([
-      firebase.database().ref('cabinets/' + code).get().catch(() => null),
-      firebase.database().ref('users/' + code).get().catch(() => null)
-    ]);
-    if (cabSnap && cabSnap.exists()) { fbCabs[code] = cabSnap.val(); }
-    if (userSnap && userSnap.exists()) {
-      const u = userSnap.val();
-      fbUsers[code] = u;
-      const ownerUid = u.billingOwner || u.invitedBy || u.addedBy || code;
-      window._mlOwnerUid = ownerUid;
-      if (ownerUid !== code) {
-        const ownerCabSnap = await firebase.database().ref('cabinets/' + ownerUid).get().catch(() => null);
-        if (ownerCabSnap && ownerCabSnap.exists()) fbCabs[ownerUid] = ownerCabSnap.val();
-      }
+  // 2. Si pas trouvé par publicCode, essayer doctorCode et cabinetCode
+  if (!Object.keys(fbUsers).length) {
+    try {
+      const snap2 = await firebase.database().ref('users')
+        .orderByChild('doctorCode').equalTo(code).get().catch(() => null);
+      if (snap2 && snap2.exists()) snap2.forEach(function(c2){ fbUsers[c2.key] = c2.val(); });
+    } catch(e) {}
+  }
+
+  // 3. Pour chaque user trouvé, charger le cabinet du owner
+  for (const [uid, u] of Object.entries(fbUsers)) {
+    const ownerUid = u.billingOwner || u.invitedBy || u.addedBy || uid;
+    if (!fbCabs[ownerUid]) {
+      const cabSnap = await firebase.database().ref('cabinets/' + ownerUid).get().catch(() => null);
+      if (cabSnap && cabSnap.exists()) fbCabs[ownerUid] = cabSnap.val();
     }
-  } catch(e) { console.warn('[ML] submitCode direct lookup:', e); }
+    // Aussi essayer de charger le cabinet directement par uid
+    if (!fbCabs[uid]) {
+      const cabSnap2 = await firebase.database().ref('cabinets/' + uid).get().catch(() => null);
+      if (cabSnap2 && cabSnap2.exists()) fbCabs[uid] = cabSnap2.val();
+    }
+  }
+
+  // 4. Si toujours rien, chercher dans les cabinets par code (lecture ciblée)
+  if (!Object.keys(fbUsers).length) {
+    // Chercher via generatePublicCode — parcourir les cabinets indexés par publicCode
+    try {
+      const cabByCode = await firebase.database().ref('cabinets')
+        .orderByChild('publicCode').equalTo(code).get().catch(() => null);
+      if (cabByCode && cabByCode.exists()) {
+        cabByCode.forEach(function(child) { fbCabs[child.key] = child.val(); });
+      }
+    } catch(e) {}
+  }
+
+  // Fusionner avec les caches mémoire existants
+  Object.assign(fbCabs, window._cabinetsCache || {});
+  Object.assign(fbUsers, window._usersCache || {});
+
+  // Mettre à jour les caches mémoire
+  if (!window._cabinetsCache) window._cabinetsCache = {};
+  if (!window._usersCache) window._usersCache = {};
+  Object.assign(window._cabinetsCache, fbCabs);
+  Object.assign(window._usersCache, fbUsers);
 
   const cabs  = fbCabs;
   const users = fbUsers;
