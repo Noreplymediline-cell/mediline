@@ -8768,7 +8768,11 @@ async function dmAddDoctor() {
       emailSent = await dmSendInvitationResend(nameVal, emailVal, doctorUid);
       if (!emailSent) {
         console.warn('[ML] Resend invitation échoué, fallback EmailJS/mailto');
-        emailSent = await dmSendInvitationEmailJS(nameVal, emailVal, cabinetId, doctorUid);
+        // Utiliser le publicCode ML-XXXXX plutôt que cabinetId (uid brut)
+        var _ownerUsers = JSON.parse(localStorage.getItem('users') || '{}');
+        var _ownerData  = _ownerUsers[docCurrentUser] || {};
+        var _publicCode = _ownerData.publicCode || _ownerData.doctorCode || _ownerData.cabinetCode || cabinetId;
+        emailSent = await dmSendInvitationEmailJS(nameVal, emailVal, _publicCode, doctorUid);
       }
     } catch(emailErr) {
       console.warn('[ML] Email invitation error:', emailErr);
@@ -8987,7 +8991,7 @@ function buildInviteHtml(name, email, cabinetCode, inviteLink) {
 }
 
 function buildInvitePlain(name, email, cabinetCode, inviteLink) {
-  return `Bonjour ${name},\n\nVous avez été invité(e) sur MediLine.\n\nPour créer votre mot de passe personnel, ouvrez ce lien :\n${inviteLink}\n\nCode cabinet : ${cabinetCode}\n\nCe lien expire dans 48 heures.\n\n— MediLine`;
+  return 'Bonjour ' + name + ',\n\nVous avez été invité(e) à rejoindre MediLine.\n\nCliquez sur ce lien pour créer votre mot de passe :\n' + inviteLink + '\n\nCe lien expire dans 48 heures.\n\n— MediLine';
 }
 
 function showInviteMailtoPopup(name, email, cabinetCode, inviteLink) {
