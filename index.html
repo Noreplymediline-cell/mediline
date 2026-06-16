@@ -3985,20 +3985,22 @@ function mlAppBaseUrl() {
 
 async function mlSendResendEmail(payload) {
   try {
+    console.log('[EMAIL] Envoi via', ML_EMAIL_API_URL, '| type:', payload.type, '| to:', payload.to);
     const res = await fetch(ML_EMAIL_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
     const data = await res.json().catch(() => ({}));
+    console.log('[EMAIL] Réponse HTTP', res.status, '| data:', JSON.stringify(data).slice(0,200));
     if (!res.ok || data.ok === false) {
-      console.warn('[MediLine] Resend Worker erreur:', data);
+      console.warn('[EMAIL] Échec Resend:', res.status, data.error || data);
       return false;
     }
-    console.log('[MediLine] Resend Worker email envoyé:', payload.type, payload.to);
+    console.log('[EMAIL] ✅ Envoyé:', payload.type, '->', payload.to);
     return true;
   } catch (e) {
-    console.warn('[MediLine] Resend Worker indisponible:', e);
+    console.warn('[EMAIL] Erreur réseau:', e.message || e);
     return false;
   }
 }
