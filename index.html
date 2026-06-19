@@ -2353,7 +2353,17 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
           <span style="font-size:13px;font-weight:600;color:var(--navy)">Afficher un message de fermeture aux patients</span>
         </div>
         <textarea class="ml-absence-txt" id="mlAbsenceTxt" rows="2" placeholder="Ex : Cabinet fermé aujourd'hui. Reprise lundi à 9h."></textarea>
-        <button class="ml-absence-save" onclick="mlAbsenceSave()">💾 Sauvegarder</button>
+        <button class="ml-absence-save" onclick="(async function(){
+  var uid=window.docCurrentUser;
+  var ok=document.getElementById('mlAbsenceOk');
+  if(!uid||!window.firebase){if(ok){ok.textContent='❌ Session expirée';ok.style.color='#ef4444';}return;}
+  var tog=document.getElementById('mlAbsenceTog');
+  var txt=document.getElementById('mlAbsenceTxt');
+  try{
+    await firebase.database().ref('cabinets/'+uid+'/absence').set({active:!!(tog&&tog.checked),message:txt?txt.value.trim():''});
+    if(ok){ok.textContent='✅ Sauvegardé';ok.style.color='#059669';setTimeout(function(){ok.textContent='';},2000);}
+  }catch(e){if(ok){ok.textContent='❌ '+(e.message||'Erreur');ok.style.color='#ef4444';}}
+})()">💾 Sauvegarder</button>
         <div class="ml-absence-ok" id="mlAbsenceOk"></div>
       </div>
       <!-- ═══════════════════════════════════════════════════════════ -->
@@ -5687,12 +5697,20 @@ async function openCabinet(code) {
   } catch(e) { console.warn('[ML] openCabinet direct load:', e); }
 
   const cab = fbCabs[code]; if (!cab) return;
+
+  // Enrichir cab avec les données user (name/adresse stockées dans users/{uid})
+  const ownerUser = fbUsers[code] || {};
+  if (!cab.name && ownerUser.cabinet) cab.name = ownerUser.cabinet;
+  if (!cab.name && ownerUser.name)    cab.name = ownerUser.name;
+  if (!cab.adresse && ownerUser.adresse) cab.adresse = ownerUser.adresse;
+  if (!cab.adresse && ownerUser.address) cab.adresse = ownerUser.address;
+
   patCurrentCabinetCode = code;
   if (!patientNavigationLocked) { patHideAll(); }
   patientNavigationLocked = true;
   document.getElementById('pat-cabinetView').classList.remove('hidden');
-  document.getElementById('cabinetName').textContent = cab.name;
-  document.getElementById('cabinetAddr').textContent = '📍 ' + cab.adresse;
+  document.getElementById('cabinetName').textContent = cab.name || '';
+  document.getElementById('cabinetAddr').textContent = cab.adresse ? '📍 ' + cab.adresse : '';
 
   // Extras : bandeau fermeture + Google Maps
   if (typeof mlPatientExtras === 'function') mlPatientExtras(cab, code);
