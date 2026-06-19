@@ -5562,50 +5562,39 @@ async function submitCode() {
   if (window._mlFbCabs)  Object.assign(fbCabs,  window._mlFbCabs);
   if (window._mlFbUsers) Object.assign(fbUsers, window._mlFbUsers);
 
-  // Résolution du code ML-XXXXX → ownerUID Firebase
-  // Méthode : scan tous les users et comparer generatePublicCode(uid)
+  // Résolution ML-XXXXX → ownerUID : scan complet Firebase users/
   try {
     const codeNormLocal = code.replace(/-/g,'').toUpperCase();
-    
-    // 1. Essai rapide : orderByChild (fonctionne si index Firebase configuré)
-    let found = false;
-    try {
-      const byPublicCode = await firebase.database().ref('users')
-        .orderByChild('publicCode').equalTo(code).get();
-      if (byPublicCode && byPublicCode.exists()) {
-        byPublicCode.forEach(function(child) { fbUsers[child.key] = child.val(); });
-        found = Object.keys(fbUsers).length > 0;
-      }
-    } catch(e) {}
-
-    // 2. Fallback : scan complet (si pas d'index)
-    if (!found) {
-      const allUsersSnap = await firebase.database().ref('users').get().catch(() => null);
-      if (allUsersSnap && allUsersSnap.exists()) {
-        allUsersSnap.forEach(function(child) {
-          const u = child.val();
-          const uid = child.key;
-          const pc  = (u.publicCode  || '').replace(/-/g,'').toUpperCase();
-          const dc  = (u.doctorCode  || '').replace(/-/g,'').toUpperCase();
-          const gen = generatePublicCode(uid).replace(/-/g,'').toUpperCase();
-          if (pc === codeNormLocal || dc === codeNormLocal || gen === codeNormLocal) {
-            fbUsers[uid] = u;
-          }
-        });
-      }
+    const allUsersSnap = await firebase.database().ref('users').get();
+    if (allUsersSnap && allUsersSnap.exists()) {
+      allUsersSnap.forEach(function(child) {
+        const uid = child.key;
+        const u   = child.val();
+        const pc  = (u.publicCode  || '').replace(/-/g,'').toUpperCase();
+        const dc  = (u.doctorCode  || '').replace(/-/g,'').toUpperCase();
+        const cc  = (u.cabinetCode || '').replace(/-/g,'').toUpperCase();
+        const gen = generatePublicCode(uid).replace(/-/g,'').toUpperCase();
+        if (pc === codeNormLocal || dc === codeNormLocal || cc === codeNormLocal || gen === codeNormLocal) {
+          fbUsers[uid] = u;
+          console.log('[ML] User trouvé:', uid, '| publicCode:', u.publicCode, '| gen:', generatePublicCode(uid));
+        }
+      });
     }
-
-    // 3. Pour chaque user trouvé, charger son cabinet
+    // Charger le cabinet de chaque user trouvé
     for (const uid of Object.keys(fbUsers)) {
       const u = fbUsers[uid];
       const ownerUid = u.billingOwner || u.invitedBy || u.addedBy || uid;
       window._mlOwnerUid = ownerUid;
       if (!fbCabs[ownerUid]) {
         const cabSnap = await firebase.database().ref('cabinets/' + ownerUid).get().catch(() => null);
-        if (cabSnap && cabSnap.exists()) fbCabs[ownerUid] = cabSnap.val();
+        if (cabSnap && cabSnap.exists()) {
+          fbCabs[ownerUid] = cabSnap.val();
+          console.log('[ML] Cabinet chargé:', ownerUid);
+        }
       }
     }
-  } catch(e) { console.warn('[ML] submitCode lookup:', e); }
+    console.log('[ML] Après scan: fbUsers keys=', Object.keys(fbUsers), '| fbCabs keys=', Object.keys(fbCabs));
+  } catch(e) { console.warn('[ML] submitCode scan:', e); }
 
   // Stocker en mémoire globale pour openCabinet/openDoc
   if (!window._mlFbUsers) window._mlFbUsers = {};
