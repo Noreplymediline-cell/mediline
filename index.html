@@ -2354,9 +2354,17 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
         </div>
         <textarea class="ml-absence-txt" id="mlAbsenceTxt" rows="2" placeholder="Ex : Cabinet fermé aujourd'hui. Reprise lundi à 9h."></textarea>
         <button class="ml-absence-save" onclick="(async function(){
-  var uid=window.docCurrentUser;
   var ok=document.getElementById('mlAbsenceOk');
-  if(!uid||!window.firebase){if(ok){ok.textContent='❌ Session expirée';ok.style.color='#ef4444';}return;}
+  // Récupérer uid depuis toutes les sources
+  var uid = (window.firebase&&firebase.auth().currentUser&&firebase.auth().currentUser.uid)
+    || window.docCurrentUser
+    || localStorage.getItem('ml_session');
+  if(!uid||!window.firebase){if(ok){ok.textContent='❌ Reconnectez-vous';ok.style.color='#ef4444';}return;}
+  // Vérifier que c'est un owner (pas un médecin invité)
+  var users=JSON.parse(localStorage.getItem('users')||'{}');
+  var u=users[uid]||{};
+  var isOwner=!u.addedBy&&!u.invitedBy&&!u.billingOwner;
+  if(!isOwner){if(ok){ok.textContent='❌ Réservé au médecin principal';ok.style.color='#ef4444';}return;}
   var tog=document.getElementById('mlAbsenceTog');
   var txt=document.getElementById('mlAbsenceTxt');
   try{
