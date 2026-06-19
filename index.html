@@ -5554,11 +5554,13 @@ async function submitCode() {
 
   // Utiliser le cache localStorage + résolution directe ciblée (sans lecture globale)
   const codeNorm = code.replace(/-/g, '').toUpperCase();
+  // Utiliser les données Firebase chargées dans submitCode (window._mlFbUsers/_mlFbCabs)
+  // Compléter avec localStorage si dispo (cache legacy)
   let fbCabs = {}, fbUsers = {};
-  try {
-    fbCabs = JSON.parse(localStorage.getItem('cabinets') || '{}');
-    fbUsers = JSON.parse(localStorage.getItem('users') || '{}');
-  } catch(e) {}
+  try { fbCabs = JSON.parse(localStorage.getItem('cabinets') || '{}'); } catch(e) {}
+  try { fbUsers = JSON.parse(localStorage.getItem('users') || '{}'); } catch(e) {}
+  if (window._mlFbCabs)  Object.assign(fbCabs,  window._mlFbCabs);
+  if (window._mlFbUsers) Object.assign(fbUsers, window._mlFbUsers);
 
   // Résolution directe Firebase par publicCode (indexé)
   try {
@@ -5591,6 +5593,12 @@ async function submitCode() {
       }
     }
   } catch(e) { console.warn('[ML] submitCode lookup:', e); }
+
+  // Stocker en mémoire globale pour openCabinet/openDoc
+  if (!window._mlFbUsers) window._mlFbUsers = {};
+  if (!window._mlFbCabs)  window._mlFbCabs  = {};
+  Object.assign(window._mlFbUsers, fbUsers);
+  Object.assign(window._mlFbCabs,  fbCabs);
 
   const cabs  = fbCabs;
   const users = fbUsers;
@@ -5734,7 +5742,17 @@ async function openCabinet(code) {
   document.getElementById('cabinetAddr').textContent = cab.adresse ? '📍 ' + cab.adresse : '';
 
   // Extras : bandeau fermeture + Google Maps
-  if (typeof mlPatientExtras === 'function') mlPatientExtras(cab, code);
+  // Charger absence depuis Firebase (pas dans cab par défaut)
+  if (typeof mlPatientExtras === 'function') {
+    mlPatientExtras(cab, code);
+    firebase.database().ref('cabinets/' + code + '/absence').once('value')
+      .then(function(snap) {
+        if (snap && snap.exists()) {
+          var cabWithAbsence = Object.assign({}, cab, { absence: snap.val() });
+          mlPatientExtras(cabWithAbsence, code);
+        }
+      }).catch(function() {});
+  }
 
   // Personnalisation page cabinet — charge depuis Firebase avec le code (= ownerUid)
   (function() {
@@ -5857,7 +5875,19 @@ async function openCabinet(code) {
   // La clé dans fbUsers = docCurrentUser côté médecin = Firebase Auth UID
   // cabinetId = ownerUid stocké dans le cabinet
   const ownerKeyInFbUsers = getDoctorQueueId(fbUsers, cabinetId);
-  const ownerData = fbUsers[ownerKeyInFbUsers];
+  let ownerData = fbUsers[ownerKeyInFbUsers];
+
+  // Si ownerData toujours vide — charger depuis Firebase directement
+  if (!ownerData && cabinetId) {
+    try {
+      const ownerSnap = await firebase.database().ref('users/' + cabinetId).get();
+      if (ownerSnap && ownerSnap.exists()) {
+        ownerData = ownerSnap.val();
+        fbUsers[cabinetId] = ownerData;
+        if (window._mlFbUsers) window._mlFbUsers[cabinetId] = ownerData;
+      }
+    } catch(e) {}
+  }
 
   console.log('[ML] OWNER_ID_CABINET', {
     ownerUidFromCab: cabinetId,
