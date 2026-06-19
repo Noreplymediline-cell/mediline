@@ -5562,23 +5562,40 @@ async function submitCode() {
   if (window._mlFbCabs)  Object.assign(fbCabs,  window._mlFbCabs);
   if (window._mlFbUsers) Object.assign(fbUsers, window._mlFbUsers);
 
-  // Résolution directe Firebase par publicCode (indexé)
+  // Résolution du code ML-XXXXX → ownerUID Firebase
+  // Méthode : scan tous les users et comparer generatePublicCode(uid)
   try {
-    // Chercher l'utilisateur dont publicCode = code saisi
-    const byPublicCode = await firebase.database().ref('users')
-      .orderByChild('publicCode').equalTo(code).get().catch(() => null);
-    if (byPublicCode && byPublicCode.exists()) {
-      byPublicCode.forEach(function(child) { fbUsers[child.key] = child.val(); });
-    }
-    // Fallback : chercher par doctorCode
-    if (!Object.keys(fbUsers).length) {
-      const byDoctorCode = await firebase.database().ref('users')
-        .orderByChild('doctorCode').equalTo(code).get().catch(() => null);
-      if (byDoctorCode && byDoctorCode.exists()) {
-        byDoctorCode.forEach(function(child) { fbUsers[child.key] = child.val(); });
+    const codeNormLocal = code.replace(/-/g,'').toUpperCase();
+    
+    // 1. Essai rapide : orderByChild (fonctionne si index Firebase configuré)
+    let found = false;
+    try {
+      const byPublicCode = await firebase.database().ref('users')
+        .orderByChild('publicCode').equalTo(code).get();
+      if (byPublicCode && byPublicCode.exists()) {
+        byPublicCode.forEach(function(child) { fbUsers[child.key] = child.val(); });
+        found = Object.keys(fbUsers).length > 0;
+      }
+    } catch(e) {}
+
+    // 2. Fallback : scan complet (si pas d'index)
+    if (!found) {
+      const allUsersSnap = await firebase.database().ref('users').get().catch(() => null);
+      if (allUsersSnap && allUsersSnap.exists()) {
+        allUsersSnap.forEach(function(child) {
+          const u = child.val();
+          const uid = child.key;
+          const pc  = (u.publicCode  || '').replace(/-/g,'').toUpperCase();
+          const dc  = (u.doctorCode  || '').replace(/-/g,'').toUpperCase();
+          const gen = generatePublicCode(uid).replace(/-/g,'').toUpperCase();
+          if (pc === codeNormLocal || dc === codeNormLocal || gen === codeNormLocal) {
+            fbUsers[uid] = u;
+          }
+        });
       }
     }
-    // Pour chaque user trouvé, charger son cabinet
+
+    // 3. Pour chaque user trouvé, charger son cabinet
     for (const uid of Object.keys(fbUsers)) {
       const u = fbUsers[uid];
       const ownerUid = u.billingOwner || u.invitedBy || u.addedBy || uid;
@@ -5586,10 +5603,6 @@ async function submitCode() {
       if (!fbCabs[ownerUid]) {
         const cabSnap = await firebase.database().ref('cabinets/' + ownerUid).get().catch(() => null);
         if (cabSnap && cabSnap.exists()) fbCabs[ownerUid] = cabSnap.val();
-      }
-      if (!fbCabs[uid] && uid !== ownerUid) {
-        const cabSnap2 = await firebase.database().ref('cabinets/' + uid).get().catch(() => null);
-        if (cabSnap2 && cabSnap2.exists()) fbCabs[uid] = cabSnap2.val();
       }
     }
   } catch(e) { console.warn('[ML] submitCode lookup:', e); }
@@ -5673,12 +5686,16 @@ async function submitCode() {
 
   // Compter les medecins du cabinet (owner + invites)
   const seenKeys = new Set();
-  Object.keys(users).forEach(function(k) {
-    var u = users[k];
+  // Utiliser fbUsers (données Firebase fraîches) ET users (cache localStorage)
+  const allUsers = Object.assign({}, users, fbUsers);
+  Object.keys(allUsers).forEach(function(k) {
+    var u = allUsers[k];
     var isOwner   = k === resolvedOwnerUid || u.uid === resolvedOwnerUid;
     var isInvited = u.addedBy === resolvedOwnerUid || u.cabinetId === resolvedOwnerUid;
     if (isOwner || isInvited) seenKeys.add(k);
   });
+  // Si toujours vide mais resolvedOwnerUid connu → ajouter directement
+  if (seenKeys.size === 0 && resolvedOwnerUid) seenKeys.add(resolvedOwnerUid);
 
   console.log('[ML] SHOW_DOCTOR_CHOICE - count:', seenKeys.size, '| keys:', [...seenKeys]);
 
@@ -5703,36 +5720,36 @@ function _cabinetStopListeners() {
 }
 
 async function openCabinet(code) {
-  // Stopper les anciens listeners cabinet avant d'en créer de nouveaux
+  // code = ownerUID Firebase (passé depuis submitCode via resolvedOwnerUid)
   _cabinetStopListeners();
 
-  // Utiliser le cache localStorage + lecture ciblée sur le cabinet demandé
+  // Charger depuis Firebase avec le vrai UID owner
   let fbCabs = {}, fbUsers = {};
-  try {
-    fbCabs = JSON.parse(localStorage.getItem('cabinets') || '{}');
-    fbUsers = JSON.parse(localStorage.getItem('users') || '{}');
-  } catch(e) {}
+  // Compléter depuis _mlFbUsers/_mlFbCabs si disponibles (chargés dans submitCode)
+  if (window._mlFbCabs)  Object.assign(fbCabs,  window._mlFbCabs);
+  if (window._mlFbUsers) Object.assign(fbUsers, window._mlFbUsers);
 
-  // Charger les données fraîches du cabinet ciblé uniquement
-  try {
-    const cabSnap = await firebase.database().ref('cabinets/' + code).get().catch(() => null);
-    if (cabSnap && cabSnap.exists()) {
-      fbCabs[code] = cabSnap.val();
-      try { const c2 = JSON.parse(localStorage.getItem('cabinets')||'{}'); c2[code] = cabSnap.val(); localStorage.setItem('cabinets', JSON.stringify(c2)); } catch(e) {}
-    }
-    // Charger aussi le user owner pour avoir son profil
-    const userSnap = await firebase.database().ref('users/' + code).get().catch(() => null);
-    if (userSnap && userSnap.exists()) { fbUsers[code] = userSnap.val(); }
-  } catch(e) { console.warn('[ML] openCabinet direct load:', e); }
+  // Charger le cabinet depuis Firebase (cabinets/{ownerUID})
+  if (!fbCabs[code]) {
+    try {
+      const cabSnap = await firebase.database().ref('cabinets/' + code).get().catch(() => null);
+      if (cabSnap && cabSnap.exists()) fbCabs[code] = cabSnap.val();
+    } catch(e) {}
+  }
 
-  const cab = fbCabs[code]; if (!cab) return;
+  // Charger le user owner depuis Firebase (users/{ownerUID})
+  if (!fbUsers[code]) {
+    try {
+      const userSnap = await firebase.database().ref('users/' + code).get().catch(() => null);
+      if (userSnap && userSnap.exists()) fbUsers[code] = userSnap.val();
+    } catch(e) {}
+  }
 
-  // Enrichir cab avec les données user (name/adresse stockées dans users/{uid})
+  const cab = fbCabs[code] || {};
+  // Enrichir cab avec données user (name/adresse dans users/{uid})
   const ownerUser = fbUsers[code] || {};
-  if (!cab.name && ownerUser.cabinet) cab.name = ownerUser.cabinet;
-  if (!cab.name && ownerUser.name)    cab.name = ownerUser.name;
-  if (!cab.adresse && ownerUser.adresse) cab.adresse = ownerUser.adresse;
-  if (!cab.adresse && ownerUser.address) cab.adresse = ownerUser.address;
+  if (!cab.name)    cab.name    = ownerUser.cabinet || ownerUser.name    || '';
+  if (!cab.adresse) cab.adresse = ownerUser.adresse || ownerUser.address || '';
 
   patCurrentCabinetCode = code;
   if (!patientNavigationLocked) { patHideAll(); }
