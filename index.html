@@ -1108,6 +1108,25 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
 .ml-cs-save{width:100%;padding:11px;background:var(--blue);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;margin-top:4px}
 .ml-cs-save:disabled{opacity:.6;cursor:not-allowed}
 .ml-cs-msg{font-size:12px;margin-top:6px;min-height:16px;text-align:center}
+
+/* ── Cabinet fermé dashboard ─────── */
+.ml-abs{background:#fff;border:1.5px solid var(--border);border-radius:16px;padding:18px;margin-bottom:14px}
+.ml-abs-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--blue);margin-bottom:12px}
+.ml-abs-row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.ml-sw{position:relative;width:44px;height:24px;display:inline-block;flex-shrink:0}
+.ml-sw input{opacity:0;width:0;height:0;position:absolute}
+.ml-sw-sl{position:absolute;inset:0;background:#cbd5e1;border-radius:24px;cursor:pointer;transition:.2s}
+.ml-sw-sl:before{content:'';position:absolute;width:18px;height:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.ml-sw input:checked+.ml-sw-sl{background:#ef4444}
+.ml-sw input:checked+.ml-sw-sl:before{transform:translateX(20px)}
+.ml-abs-txt{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;font-family:inherit;color:var(--navy);background:var(--bg);box-sizing:border-box;resize:none;margin-top:4px}
+.ml-abs-save{width:100%;padding:9px;background:var(--blue);color:#fff;border:none;border-radius:9px;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;margin-top:8px}
+.ml-abs-ok{font-size:12px;text-align:center;min-height:16px;margin-top:4px}
+/* ── Bandeau patient ──────────────── */
+.ml-cab-closed{background:#fef2f2;border:1.5px solid #fca5a5;border-radius:12px;padding:12px 16px;margin-bottom:12px;font-size:13px;font-weight:600;color:#dc2626;display:none}
+/* ── Google Maps ──────────────────── */
+.ml-maps-btn{display:none;margin-bottom:12px}
+.ml-maps-link{display:flex;align-items:center;gap:8px;padding:11px 14px;background:#fff;border:1.5px solid var(--border);border-radius:11px;font-size:13px;font-weight:700;color:var(--navy);text-decoration:none}
 </style>
 <!-- Firebase SDKs (doit charger avant le JS applicatif) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -2322,6 +2341,31 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
         <div class="ml-cs-msg" id="mlCsMsg"></div>
       </div>
       <!-- ════════════════════════════════════════════════════════ -->
+      <!-- ══ CABINET FERMÉ ════════════════════════════════════ -->
+      <div class="ml-abs" id="mlAbsBox">
+        <div class="ml-abs-title">🚫 Cabinet fermé</div>
+        <div class="ml-abs-row">
+          <label class="ml-sw">
+            <input type="checkbox" id="mlAbsTog">
+            <span class="ml-sw-sl"></span>
+          </label>
+          <span style="font-size:13px;font-weight:600;color:var(--navy)">Afficher message de fermeture aux patients</span>
+        </div>
+        <textarea class="ml-abs-txt" id="mlAbsTxt" rows="2" placeholder="Ex : Cabinet fermé aujourd'hui. Reprise lundi à 9h."></textarea>
+        <button class="ml-abs-save" onclick="(async()=>{
+  var u=firebase.auth().currentUser;var uid=u?u.uid:localStorage.getItem('ml_session');
+  var ok=document.getElementById('mlAbsOk');
+  if(!uid){ok.textContent='❌ Reconnectez-vous';ok.style.color='#ef4444';return;}
+  var tog=document.getElementById('mlAbsTog');var txt=document.getElementById('mlAbsTxt');
+  try{
+    await firebase.database().ref('cabinets/'+uid+'/absence').set({active:!!tog.checked,message:txt.value.trim()});
+    ok.textContent='✅ Sauvegardé';ok.style.color='#059669';setTimeout(()=>{ok.textContent='';},2000);
+  }catch(e){ok.textContent='❌ '+(e.message||'Erreur');ok.style.color='#ef4444';}
+})()">💾 Sauvegarder</button>
+        <div class="ml-abs-ok" id="mlAbsOk"></div>
+      </div>
+      <!-- ═════════════════════════════════════════════════════ -->
+
       <div class="doc-divider"></div>
       <button class="doc-btn doc-btn-ghost" onclick="docLogout()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -2415,6 +2459,12 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
       <div class="pat-screen-title" id="cabinetName"></div>
       <div class="pat-screen-sub" id="cabinetAddr"></div>
       <div id="cabMsgWrap"></div>
+      <div class="ml-cab-closed" id="mlCabClosed">🚫 <span id="mlCabClosedTxt">Le cabinet est fermé.</span></div>
+      <div class="ml-maps-btn" id="mlMapsBtn">
+        <a class="ml-maps-link" id="mlMapsLink" href="#" target="_blank" rel="noopener">
+          <span style="font-size:18px">📍</span> Obtenir l'itinéraire
+        </a>
+      </div>
       <div class="doc-list" id="docListCabinet"></div>
     </div>
 
@@ -5746,6 +5796,8 @@ async function openCabinet(code) {
   // ── Résoudre l'UID du propriétaire ──────────────────────────────────────
   // Le cabinetId = ownerUid (ils sont toujours égaux à la création)
   const cabinetId = cab.ownerUid || cab.cabinetId || cab.code || code;
+  // Cabinet fermé + Maps
+  if (typeof mlPatExtras==='function') mlPatExtras(cabinetId, cab.adresse||'');
 
   console.log('[ML] openCabinet — code:', code, '| cabinetId résolu:', cabinetId);
 
@@ -8523,6 +8575,7 @@ async function dmInitSection() {
     section.style.display = 'none';
     var csSection = document.getElementById('mlCsSection');
     if (csSection) csSection.style.display = 'none';
+    if (typeof mlAbsHideForInvited==='function') mlAbsHideForInvited();
     return;
   }
 
@@ -8560,6 +8613,7 @@ async function dmInitSection() {
 
   dmRenderPlanInfo();
   setTimeout(function(){ if(typeof mlCsLoad==="function") mlCsLoad(); }, 400);
+  setTimeout(function(){ if(typeof mlAbsLoad==="function") mlAbsLoad(); }, 600);
 
   dmLoadAndRender();
 }
@@ -11921,6 +11975,61 @@ window.checkPromo = function() {
   }
 
 })();
+
+
+/* ── CABINET FERMÉ + GOOGLE MAPS ───────────────────────────── */
+
+// Charger l'état au login dashboard
+async function mlAbsLoad() {
+  var u = firebase.auth().currentUser;
+  var uid = u ? u.uid : localStorage.getItem('ml_session');
+  if (!uid) return;
+  try {
+    var snap = await firebase.database().ref('cabinets/'+uid+'/absence').once('value');
+    var d = snap && snap.exists() ? snap.val() : null;
+    var tog = document.getElementById('mlAbsTog');
+    var txt = document.getElementById('mlAbsTxt');
+    if (tog) tog.checked = !!(d && d.active);
+    if (txt && d && d.message) txt.value = d.message;
+  } catch(e) {}
+}
+
+// Cacher pour invités
+function mlAbsHideForInvited() {
+  var b = document.getElementById('mlAbsBox');
+  if (b) b.style.display = 'none';
+}
+
+// Côté patient — appelé depuis openCabinet avec le ownerUid réel
+function mlPatExtras(ownerUid, adresse) {
+  // Bandeau fermeture
+  firebase.database().ref('cabinets/'+ownerUid+'/absence').once('value')
+    .then(function(snap) {
+      var d = snap && snap.exists() ? snap.val() : null;
+      var banner = document.getElementById('mlCabClosed');
+      var txt    = document.getElementById('mlCabClosedTxt');
+      var list   = document.getElementById('docListCabinet');
+      if (banner) {
+        if (d && d.active) {
+          banner.style.display = 'block';
+          if (txt) txt.textContent = d.message || 'Le cabinet est fermé pour le moment.';
+          if (list) list.style.opacity = '0.4';
+        } else {
+          banner.style.display = 'none';
+          if (list) list.style.opacity = '';
+        }
+      }
+    }).catch(function(){});
+  // Google Maps
+  var btn  = document.getElementById('mlMapsBtn');
+  var link = document.getElementById('mlMapsLink');
+  if (btn && adresse) {
+    link.href = 'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(adresse);
+    btn.style.display = 'block';
+  } else if (btn) {
+    btn.style.display = 'none';
+  }
+}
 
 </script>
 
