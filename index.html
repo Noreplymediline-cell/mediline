@@ -1108,26 +1108,6 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
 .ml-cs-save{width:100%;padding:11px;background:var(--blue);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;margin-top:4px}
 .ml-cs-save:disabled{opacity:.6;cursor:not-allowed}
 .ml-cs-msg{font-size:12px;margin-top:6px;min-height:16px;text-align:center}
-
-/* ── Message absence ──────────────────────────────── */
-.ml-absence-box{background:#fff;border:1.5px solid var(--border);border-radius:16px;padding:18px;margin-bottom:14px}
-.ml-absence-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--blue);margin-bottom:12px}
-.ml-absence-row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-.ml-sw{position:relative;width:44px;height:24px;flex-shrink:0;display:inline-block}
-.ml-sw input{opacity:0;width:0;height:0;position:absolute}
-.ml-sw-sl{position:absolute;inset:0;background:#cbd5e1;border-radius:24px;cursor:pointer;transition:.25s}
-.ml-sw-sl:before{content:'';position:absolute;width:18px;height:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.25s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
-.ml-sw input:checked+.ml-sw-sl{background:#ef4444}
-.ml-sw input:checked+.ml-sw-sl:before{transform:translateX(20px)}
-.ml-absence-txt{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;font-family:inherit;color:var(--navy);background:var(--bg);box-sizing:border-box;resize:none;margin-top:4px}
-.ml-absence-save{width:100%;padding:9px;background:var(--blue);color:#fff;border:none;border-radius:9px;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;margin-top:8px}
-.ml-absence-ok{font-size:12px;text-align:center;min-height:16px;margin-top:4px}
-/* ── Bandeau absence patient ──────────────────────── */
-.ml-cab-closed{background:#fef2f2;border:1.5px solid #fca5a5;border-radius:12px;padding:12px 16px;margin-bottom:12px;font-size:13px;font-weight:600;color:#dc2626;display:none;align-items:flex-start;gap:8px}
-/* ── Google Maps btn ─────────────────────────────── */
-.ml-maps-btn{display:none;margin-bottom:12px}
-.ml-maps-link{display:flex;align-items:center;gap:8px;padding:11px 14px;background:#fff;border:1.5px solid var(--border);border-radius:11px;font-size:13px;font-weight:700;color:var(--navy);text-decoration:none;transition:background .15s}
-.ml-maps-link:active{background:var(--bg)}
 </style>
 <!-- Firebase SDKs (doit charger avant le JS applicatif) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -2342,40 +2322,6 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
         <div class="ml-cs-msg" id="mlCsMsg"></div>
       </div>
       <!-- ════════════════════════════════════════════════════════ -->
-      <!-- ══ MESSAGE FERMETURE ════════════════════════════════════ -->
-      <div class="ml-absence-box" id="mlAbsenceBox">
-        <div class="ml-absence-title">🚫 Cabinet fermé</div>
-        <div class="ml-absence-row">
-          <label class="ml-sw">
-            <input type="checkbox" id="mlAbsenceTog" onchange="mlAbsenceSave()">
-            <span class="ml-sw-sl"></span>
-          </label>
-          <span style="font-size:13px;font-weight:600;color:var(--navy)">Afficher un message de fermeture aux patients</span>
-        </div>
-        <textarea class="ml-absence-txt" id="mlAbsenceTxt" rows="2" placeholder="Ex : Cabinet fermé aujourd'hui. Reprise lundi à 9h."></textarea>
-        <button class="ml-absence-save" onclick="(async function(){
-  var ok=document.getElementById('mlAbsenceOk');
-  // Récupérer uid depuis toutes les sources
-  var uid = (window.firebase&&firebase.auth().currentUser&&firebase.auth().currentUser.uid)
-    || window.docCurrentUser
-    || localStorage.getItem('ml_session');
-  if(!uid||!window.firebase){if(ok){ok.textContent='❌ Reconnectez-vous';ok.style.color='#ef4444';}return;}
-  // Vérifier que c'est un owner (pas un médecin invité)
-  var users=JSON.parse(localStorage.getItem('users')||'{}');
-  var u=users[uid]||{};
-  var isOwner=!u.addedBy&&!u.invitedBy&&!u.billingOwner;
-  if(!isOwner){if(ok){ok.textContent='❌ Réservé au médecin principal';ok.style.color='#ef4444';}return;}
-  var tog=document.getElementById('mlAbsenceTog');
-  var txt=document.getElementById('mlAbsenceTxt');
-  try{
-    await firebase.database().ref('cabinets/'+uid+'/absence').set({active:!!(tog&&tog.checked),message:txt?txt.value.trim():''});
-    if(ok){ok.textContent='✅ Sauvegardé';ok.style.color='#059669';setTimeout(function(){ok.textContent='';},2000);}
-  }catch(e){if(ok){ok.textContent='❌ '+(e.message||'Erreur');ok.style.color='#ef4444';}}
-})()">💾 Sauvegarder</button>
-        <div class="ml-absence-ok" id="mlAbsenceOk"></div>
-      </div>
-      <!-- ═══════════════════════════════════════════════════════════ -->
-
       <div class="doc-divider"></div>
       <button class="doc-btn doc-btn-ghost" onclick="docLogout()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -2469,12 +2415,6 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
       <div class="pat-screen-title" id="cabinetName"></div>
       <div class="pat-screen-sub" id="cabinetAddr"></div>
       <div id="cabMsgWrap"></div>
-      <div class="ml-cab-closed" id="cabClosedBanner">🚫 <span id="cabClosedText">Le cabinet est fermé.</span></div>
-      <div class="ml-maps-btn" id="cabMapsBtn">
-        <a class="ml-maps-link" id="cabMapsLink" href="#" target="_blank" rel="noopener">
-          <span style="font-size:18px">📍</span> Obtenir l'itinéraire
-        </a>
-      </div>
       <div class="doc-list" id="docListCabinet"></div>
     </div>
 
@@ -5554,53 +5494,30 @@ async function submitCode() {
 
   // Utiliser le cache localStorage + résolution directe ciblée (sans lecture globale)
   const codeNorm = code.replace(/-/g, '').toUpperCase();
-  // Utiliser les données Firebase chargées dans submitCode (window._mlFbUsers/_mlFbCabs)
-  // Compléter avec localStorage si dispo (cache legacy)
   let fbCabs = {}, fbUsers = {};
-  try { fbCabs = JSON.parse(localStorage.getItem('cabinets') || '{}'); } catch(e) {}
-  try { fbUsers = JSON.parse(localStorage.getItem('users') || '{}'); } catch(e) {}
-  if (window._mlFbCabs)  Object.assign(fbCabs,  window._mlFbCabs);
-  if (window._mlFbUsers) Object.assign(fbUsers, window._mlFbUsers);
-
-  // Résolution ML-XXXXX → ownerUID : scan complet Firebase users/
   try {
-    const codeNormLocal = code.replace(/-/g,'').toUpperCase();
-    const allUsersSnap = await firebase.database().ref('users').get();
-    if (allUsersSnap && allUsersSnap.exists()) {
-      allUsersSnap.forEach(function(child) {
-        const uid = child.key;
-        const u   = child.val();
-        const pc  = (u.publicCode  || '').replace(/-/g,'').toUpperCase();
-        const dc  = (u.doctorCode  || '').replace(/-/g,'').toUpperCase();
-        const cc  = (u.cabinetCode || '').replace(/-/g,'').toUpperCase();
-        const gen = generatePublicCode(uid).replace(/-/g,'').toUpperCase();
-        if (pc === codeNormLocal || dc === codeNormLocal || cc === codeNormLocal || gen === codeNormLocal) {
-          fbUsers[uid] = u;
-          console.log('[ML] User trouvé:', uid, '| publicCode:', u.publicCode, '| gen:', generatePublicCode(uid));
-        }
-      });
-    }
-    // Charger le cabinet de chaque user trouvé
-    for (const uid of Object.keys(fbUsers)) {
-      const u = fbUsers[uid];
-      const ownerUid = u.billingOwner || u.invitedBy || u.addedBy || uid;
+    fbCabs = JSON.parse(localStorage.getItem('cabinets') || '{}');
+    fbUsers = JSON.parse(localStorage.getItem('users') || '{}');
+  } catch(e) {}
+
+  // Tentative de résolution directe Firebase (lecture ciblée sur le code saisi)
+  try {
+    const [cabSnap, userSnap] = await Promise.all([
+      firebase.database().ref('cabinets/' + code).get().catch(() => null),
+      firebase.database().ref('users/' + code).get().catch(() => null)
+    ]);
+    if (cabSnap && cabSnap.exists()) { fbCabs[code] = cabSnap.val(); }
+    if (userSnap && userSnap.exists()) {
+      const u = userSnap.val();
+      fbUsers[code] = u;
+      const ownerUid = u.billingOwner || u.invitedBy || u.addedBy || code;
       window._mlOwnerUid = ownerUid;
-      if (!fbCabs[ownerUid]) {
-        const cabSnap = await firebase.database().ref('cabinets/' + ownerUid).get().catch(() => null);
-        if (cabSnap && cabSnap.exists()) {
-          fbCabs[ownerUid] = cabSnap.val();
-          console.log('[ML] Cabinet chargé:', ownerUid);
-        }
+      if (ownerUid !== code) {
+        const ownerCabSnap = await firebase.database().ref('cabinets/' + ownerUid).get().catch(() => null);
+        if (ownerCabSnap && ownerCabSnap.exists()) fbCabs[ownerUid] = ownerCabSnap.val();
       }
     }
-    console.log('[ML] Après scan: fbUsers keys=', Object.keys(fbUsers), '| fbCabs keys=', Object.keys(fbCabs));
-  } catch(e) { console.warn('[ML] submitCode scan:', e); }
-
-  // Stocker en mémoire globale pour openCabinet/openDoc
-  if (!window._mlFbUsers) window._mlFbUsers = {};
-  if (!window._mlFbCabs)  window._mlFbCabs  = {};
-  Object.assign(window._mlFbUsers, fbUsers);
-  Object.assign(window._mlFbCabs,  fbCabs);
+  } catch(e) { console.warn('[ML] submitCode direct lookup:', e); }
 
   const cabs  = fbCabs;
   const users = fbUsers;
@@ -5675,16 +5592,12 @@ async function submitCode() {
 
   // Compter les medecins du cabinet (owner + invites)
   const seenKeys = new Set();
-  // Utiliser fbUsers (données Firebase fraîches) ET users (cache localStorage)
-  const allUsers = Object.assign({}, users, fbUsers);
-  Object.keys(allUsers).forEach(function(k) {
-    var u = allUsers[k];
+  Object.keys(users).forEach(function(k) {
+    var u = users[k];
     var isOwner   = k === resolvedOwnerUid || u.uid === resolvedOwnerUid;
     var isInvited = u.addedBy === resolvedOwnerUid || u.cabinetId === resolvedOwnerUid;
     if (isOwner || isInvited) seenKeys.add(k);
   });
-  // Si toujours vide mais resolvedOwnerUid connu → ajouter directement
-  if (seenKeys.size === 0 && resolvedOwnerUid) seenKeys.add(resolvedOwnerUid);
 
   console.log('[ML] SHOW_DOCTOR_CHOICE - count:', seenKeys.size, '| keys:', [...seenKeys]);
 
@@ -5709,56 +5622,35 @@ function _cabinetStopListeners() {
 }
 
 async function openCabinet(code) {
-  // code = ownerUID Firebase (passé depuis submitCode via resolvedOwnerUid)
+  // Stopper les anciens listeners cabinet avant d'en créer de nouveaux
   _cabinetStopListeners();
 
-  // Charger depuis Firebase avec le vrai UID owner
+  // Utiliser le cache localStorage + lecture ciblée sur le cabinet demandé
   let fbCabs = {}, fbUsers = {};
-  // Compléter depuis _mlFbUsers/_mlFbCabs si disponibles (chargés dans submitCode)
-  if (window._mlFbCabs)  Object.assign(fbCabs,  window._mlFbCabs);
-  if (window._mlFbUsers) Object.assign(fbUsers, window._mlFbUsers);
+  try {
+    fbCabs = JSON.parse(localStorage.getItem('cabinets') || '{}');
+    fbUsers = JSON.parse(localStorage.getItem('users') || '{}');
+  } catch(e) {}
 
-  // Charger le cabinet depuis Firebase (cabinets/{ownerUID})
-  if (!fbCabs[code]) {
-    try {
-      const cabSnap = await firebase.database().ref('cabinets/' + code).get().catch(() => null);
-      if (cabSnap && cabSnap.exists()) fbCabs[code] = cabSnap.val();
-    } catch(e) {}
-  }
+  // Charger les données fraîches du cabinet ciblé uniquement
+  try {
+    const cabSnap = await firebase.database().ref('cabinets/' + code).get().catch(() => null);
+    if (cabSnap && cabSnap.exists()) {
+      fbCabs[code] = cabSnap.val();
+      try { const c2 = JSON.parse(localStorage.getItem('cabinets')||'{}'); c2[code] = cabSnap.val(); localStorage.setItem('cabinets', JSON.stringify(c2)); } catch(e) {}
+    }
+    // Charger aussi le user owner pour avoir son profil
+    const userSnap = await firebase.database().ref('users/' + code).get().catch(() => null);
+    if (userSnap && userSnap.exists()) { fbUsers[code] = userSnap.val(); }
+  } catch(e) { console.warn('[ML] openCabinet direct load:', e); }
 
-  // Charger le user owner depuis Firebase (users/{ownerUID})
-  if (!fbUsers[code]) {
-    try {
-      const userSnap = await firebase.database().ref('users/' + code).get().catch(() => null);
-      if (userSnap && userSnap.exists()) fbUsers[code] = userSnap.val();
-    } catch(e) {}
-  }
-
-  const cab = fbCabs[code] || {};
-  // Enrichir cab avec données user (name/adresse dans users/{uid})
-  const ownerUser = fbUsers[code] || {};
-  if (!cab.name)    cab.name    = ownerUser.cabinet || ownerUser.name    || '';
-  if (!cab.adresse) cab.adresse = ownerUser.adresse || ownerUser.address || '';
-
+  const cab = fbCabs[code]; if (!cab) return;
   patCurrentCabinetCode = code;
   if (!patientNavigationLocked) { patHideAll(); }
   patientNavigationLocked = true;
   document.getElementById('pat-cabinetView').classList.remove('hidden');
-  document.getElementById('cabinetName').textContent = cab.name || '';
-  document.getElementById('cabinetAddr').textContent = cab.adresse ? '📍 ' + cab.adresse : '';
-
-  // Extras : bandeau fermeture + Google Maps
-  // Charger absence depuis Firebase (pas dans cab par défaut)
-  if (typeof mlPatientExtras === 'function') {
-    mlPatientExtras(cab, code);
-    firebase.database().ref('cabinets/' + code + '/absence').once('value')
-      .then(function(snap) {
-        if (snap && snap.exists()) {
-          var cabWithAbsence = Object.assign({}, cab, { absence: snap.val() });
-          mlPatientExtras(cabWithAbsence, code);
-        }
-      }).catch(function() {});
-  }
+  document.getElementById('cabinetName').textContent = cab.name;
+  document.getElementById('cabinetAddr').textContent = '📍 ' + cab.adresse;
 
   // Personnalisation page cabinet — charge depuis Firebase avec le code (= ownerUid)
   (function() {
@@ -5881,19 +5773,7 @@ async function openCabinet(code) {
   // La clé dans fbUsers = docCurrentUser côté médecin = Firebase Auth UID
   // cabinetId = ownerUid stocké dans le cabinet
   const ownerKeyInFbUsers = getDoctorQueueId(fbUsers, cabinetId);
-  let ownerData = fbUsers[ownerKeyInFbUsers];
-
-  // Si ownerData toujours vide — charger depuis Firebase directement
-  if (!ownerData && cabinetId) {
-    try {
-      const ownerSnap = await firebase.database().ref('users/' + cabinetId).get();
-      if (ownerSnap && ownerSnap.exists()) {
-        ownerData = ownerSnap.val();
-        fbUsers[cabinetId] = ownerData;
-        if (window._mlFbUsers) window._mlFbUsers[cabinetId] = ownerData;
-      }
-    } catch(e) {}
-  }
+  const ownerData = fbUsers[ownerKeyInFbUsers];
 
   console.log('[ML] OWNER_ID_CABINET', {
     ownerUidFromCab: cabinetId,
@@ -8643,8 +8523,6 @@ async function dmInitSection() {
     section.style.display = 'none';
     var csSection = document.getElementById('mlCsSection');
     if (csSection) csSection.style.display = 'none';
-    var absBox = document.getElementById('mlAbsenceBox');
-    if (absBox) absBox.style.display = 'none';
     return;
   }
 
@@ -8682,7 +8560,6 @@ async function dmInitSection() {
 
   dmRenderPlanInfo();
   setTimeout(function(){ if(typeof mlCsLoad==="function") mlCsLoad(); }, 400);
-  setTimeout(function(){ if(typeof mlAbsenceLoad==="function") mlAbsenceLoad(); }, 500);
 
   dmLoadAndRender();
 }
@@ -12044,77 +11921,6 @@ window.checkPromo = function() {
   }
 
 })();
-
-
-/* ═══════════════════════════════════════════════════════
-   MESSAGE FERMETURE + GOOGLE MAPS
-   ═══════════════════════════════════════════════════════ */
-
-// Charger l'état d'absence au login dashboard
-async function mlAbsenceLoad() {
-  var uid = window.docCurrentUser;
-  if (!uid || !window.firebase) return;
-  try {
-    var snap = await firebase.database().ref('cabinets/' + uid + '/absence').once('value');
-    var d = snap && snap.exists() ? snap.val() : null;
-    var tog = document.getElementById('mlAbsenceTog');
-    var txt = document.getElementById('mlAbsenceTxt');
-    if (tog) tog.checked = !!(d && d.active);
-    if (txt && d && d.message) txt.value = d.message;
-  } catch(e) {}
-}
-
-// Sauvegarder
-async function mlAbsenceSave() {
-  var uid = window.docCurrentUser;
-  if (!uid || !window.firebase) return;
-  var tog = document.getElementById('mlAbsenceTog');
-  var txt = document.getElementById('mlAbsenceTxt');
-  var ok  = document.getElementById('mlAbsenceOk');
-  var active  = tog ? tog.checked : false;
-  var message = txt ? txt.value.trim() : '';
-  try {
-    await firebase.database().ref('cabinets/' + uid + '/absence').set({ active: active, message: message });
-    if (ok) { ok.textContent = '✅ Sauvegardé'; ok.style.color = '#059669'; setTimeout(function(){ ok.textContent = ''; }, 2000); }
-  } catch(e) {
-    if (ok) { ok.textContent = '❌ Erreur'; ok.style.color = '#ef4444'; }
-  }
-}
-
-window.mlAbsenceSave = mlAbsenceSave;
-
-// Côté patient : afficher bandeau + Maps dans openCabinet
-function mlPatientExtras(cab, code) {
-  // Bandeau fermeture
-  var banner  = document.getElementById('cabClosedBanner');
-  var banText = document.getElementById('cabClosedText');
-  var listEl  = document.getElementById('docListCabinet');
-  var absence = cab && cab.absence;
-  if (banner) {
-    if (absence && absence.active) {
-      banner.style.display = 'flex';
-      if (banText) banText.textContent = absence.message || 'Le cabinet est fermé pour le moment.';
-      if (listEl)  listEl.style.opacity = '0.4';
-    } else {
-      banner.style.display = 'none';
-      if (listEl)  listEl.style.opacity = '';
-    }
-  }
-  // Google Maps
-  var mapsBtn  = document.getElementById('cabMapsBtn');
-  var mapsLink = document.getElementById('cabMapsLink');
-  var adresse  = cab && (cab.adresse || cab.address || '');
-  if (mapsBtn) {
-    if (adresse) {
-      mapsLink.href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(adresse);
-      mapsBtn.style.display = 'block';
-    } else {
-      mapsBtn.style.display = 'none';
-    }
-  }
-}
-
-window.mlPatientExtras = mlPatientExtras;
 
 </script>
 
