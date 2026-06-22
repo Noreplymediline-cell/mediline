@@ -5749,6 +5749,26 @@ async function openCabinet(code) {
 
   console.log('[ML] openCabinet — code:', code, '| cabinetId résolu:', cabinetId);
 
+  // ── Charger le user owner depuis Firebase si absent de fbUsers ──────────
+  if (cabinetId && !fbUsers[cabinetId]) {
+    try {
+      const ownerSnap = await firebase.database().ref('users/' + cabinetId).get();
+      if (ownerSnap && ownerSnap.exists()) {
+        fbUsers[cabinetId] = ownerSnap.val();
+        console.log('[ML] Owner chargé depuis Firebase:', cabinetId);
+      }
+    } catch(e) {}
+  }
+  // Enrichir le cab avec name/adresse depuis fbUsers si manquant
+  const _ownerU = fbUsers[cabinetId] || {};
+  if (!cab.name)    cab.name    = _ownerU.cabinet || _ownerU.name    || '';
+  if (!cab.adresse) cab.adresse = _ownerU.adresse || _ownerU.address || '';
+  // Mettre à jour l'affichage nom/adresse
+  const _nameEl2 = document.getElementById('cabinetName');
+  const _addrEl2 = document.getElementById('cabinetAddr');
+  if (_nameEl2 && cab.name) _nameEl2.textContent = cab.name;
+  if (_addrEl2 && cab.adresse) _addrEl2.textContent = '📍 ' + cab.adresse;
+
   // ── Récupérer les médecins invités depuis cabinets/{cabinetId}/doctors ──
   let cabinetDoctorsNode = {};
   try {
