@@ -5500,24 +5500,35 @@ async function submitCode() {
     fbUsers = JSON.parse(localStorage.getItem('users') || '{}');
   } catch(e) {}
 
-  // Tentative de résolution directe Firebase (lecture ciblée sur le code saisi)
+  // Scan Firebase complet : trouver le user dont le code correspond
   try {
-    const [cabSnap, userSnap] = await Promise.all([
-      firebase.database().ref('cabinets/' + code).get().catch(() => null),
-      firebase.database().ref('users/' + code).get().catch(() => null)
-    ]);
-    if (cabSnap && cabSnap.exists()) { fbCabs[code] = cabSnap.val(); }
-    if (userSnap && userSnap.exists()) {
-      const u = userSnap.val();
-      fbUsers[code] = u;
-      const ownerUid = u.billingOwner || u.invitedBy || u.addedBy || code;
-      window._mlOwnerUid = ownerUid;
-      if (ownerUid !== code) {
-        const ownerCabSnap = await firebase.database().ref('cabinets/' + ownerUid).get().catch(() => null);
-        if (ownerCabSnap && ownerCabSnap.exists()) fbCabs[ownerUid] = ownerCabSnap.val();
+    const allSnap = await firebase.database().ref('users').get();
+    if (allSnap && allSnap.exists()) {
+      allSnap.forEach(function(child) {
+        const uid = child.key;
+        const u   = child.val();
+        const pc  = (u.publicCode  || '').replace(/-/g,'').toUpperCase();
+        const dc  = (u.doctorCode  || '').replace(/-/g,'').toUpperCase();
+        const cc  = (u.cabinetCode || '').replace(/-/g,'').toUpperCase();
+        const gen = (typeof generatePublicCode === 'function') ? generatePublicCode(uid).replace(/-/g,'').toUpperCase() : '';
+        if (pc === codeNorm || dc === codeNorm || cc === codeNorm || gen === codeNorm) {
+          fbUsers[uid] = u;
+          // Charger son cabinet
+          const ownerUid = u.billingOwner || u.invitedBy || u.addedBy || uid;
+          window._mlOwnerUid = ownerUid;
+        }
+      });
+    }
+    // Charger les cabinets des users trouvés
+    for (const uid of Object.keys(fbUsers)) {
+      const u = fbUsers[uid];
+      const ownerUid = u.billingOwner || u.invitedBy || u.addedBy || uid;
+      if (!fbCabs[ownerUid]) {
+        const cs = await firebase.database().ref('cabinets/' + ownerUid).get().catch(() => null);
+        if (cs && cs.exists()) fbCabs[ownerUid] = cs.val();
       }
     }
-  } catch(e) { console.warn('[ML] submitCode direct lookup:', e); }
+  } catch(e) { console.warn('[ML] submitCode scan:', e); }
 
   const cabs  = fbCabs;
   const users = fbUsers;
