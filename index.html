@@ -1114,6 +1114,48 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script>
+/* ═══════════════════════════════════════════════════════════════
+   MEDILINE — Proxy localStorage
+   Redirige vers sessionStorage ou mémoire selon la clé
+   Aucune donnée persistée sur l'appareil
+   ═══════════════════════════════════════════════════════════════ */
+(function() {
+  // Clés qui vont en sessionStorage (durée de la session navigateur)
+  var SESSION = { 'ml_session':1, 'myPatientId':1, 'myDoctorId':1 };
+
+  // Clés à ignorer (caches Firebase — on lit Firebase directement)
+  var IGNORE_EXACT = { 'users':1, 'cabinets':1 };
+  var IGNORE_PREFIX = ['namedPatients_','myPatient_','reviews_',
+                       '_queueFinal','_ai_history','_ai_delays'];
+  var IGNORE_SUFFIX = ['_p','_r','_ts','_startedAt','_totalMinutes','_total'];
+
+  function ignored(key) {
+    if (!key) return false;
+    var k = String(key);
+    if (IGNORE_EXACT[k]) return true;
+    for (var i=0;i<IGNORE_PREFIX.length;i++)
+      if (k.indexOf(IGNORE_PREFIX[i])>=0) return true;
+    for (var j=0;j<IGNORE_SUFFIX.length;j++)
+      if (k.endsWith(IGNORE_SUFFIX[j])) return true;
+    return false;
+  }
+
+  var ss = window.sessionStorage;
+  var proxy = {
+    getItem:    function(k){ return ignored(k)?null:ss.getItem(k); },
+    setItem:    function(k,v){ if(!ignored(k)) ss.setItem(k,v); },
+    removeItem: function(k){ if(!ignored(k)) ss.removeItem(k); },
+    clear:      function(){ ss.clear(); },
+    key:        function(i){ return ss.key(i); },
+    get length(){ return ss.length; }
+  };
+
+  try {
+    Object.defineProperty(window,'localStorage',{get:function(){return proxy;},configurable:true});
+    console.log('[ML] Proxy localStorage actif — sessionStorage uniquement');
+  } catch(e) {}
+})();
+
 (function() {
   var cfg = {
     apiKey: "AIzaSyBLc4xKsBshDGQFQI-7dYScEsdqKxJGNIQ",
