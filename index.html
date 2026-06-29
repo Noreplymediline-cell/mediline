@@ -1108,6 +1108,12 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
 .ml-cs-save{width:100%;padding:11px;background:var(--blue);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;margin-top:4px}
 .ml-cs-save:disabled{opacity:.6;cursor:not-allowed}
 .ml-cs-msg{font-size:12px;margin-top:6px;min-height:16px;text-align:center}
+
+/* ── SMS Premium ──────────────────────────── */
+.ml-sms-badge{display:inline-flex;align-items:center;gap:4px;background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;font-size:10px;font-weight:800;padding:3px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:.05em;margin-left:6px;vertical-align:middle}
+.ml-sms-toggle-box{background:#faf5ff;border:1.5px solid #e9d5ff;border-radius:14px;padding:14px 16px;margin-bottom:14px}
+.ml-sms-toggle-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.ml-sms-toggle-label{font-size:13px;font-weight:700;color:#7c3aed}
 </style>
 <!-- Firebase SDKs (doit charger avant le JS applicatif) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -2364,6 +2370,24 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
         <div class="ml-cs-msg" id="mlCsMsg"></div>
       </div>
       <!-- ════════════════════════════════════════════════════════ -->
+      <!-- ══ SMS PREMIUM ══════════════════════════════════════ -->
+      <div class="ml-sms-toggle-box" id="mlSmsBox" style="display:none">
+        <div class="ml-sms-toggle-row">
+          <span class="ml-sms-toggle-label">📱 SMS patients <span class="ml-sms-badge">Premium</span></span>
+          <label class="ml-sw">
+            <input type="checkbox" id="mlSmsTog" onchange="(async()=>{
+  var u=firebase.auth().currentUser;var uid=u?u.uid:localStorage.getItem('ml_session');
+  if(!uid)return;
+  await firebase.database().ref('cabinets/'+uid+'/smsEnabled').set(this.checked).catch(()=>{});
+  document.getElementById('mlSmsStatus').textContent=this.checked?'Actif — Les patients seront prévenus 10min avant leur tour':'Inactif';
+})()">
+            <span class="ml-sw-sl"></span>
+          </label>
+        </div>
+        <div id="mlSmsStatus" style="font-size:11px;color:#9333ea;margin-top:8px">Inactif</div>
+      </div>
+      <!-- ═════════════════════════════════════════════════════ -->
+
       <div class="doc-divider"></div>
       <button class="doc-btn doc-btn-ghost" onclick="docLogout()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -2485,6 +2509,13 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
               Heure de rendez-vous
             </label>
             <input type="time" id="patRegHeure" style="width:auto;min-width:130px;max-width:160px;text-align:center;font-size:16px;font-weight:700;letter-spacing:.03em">
+          </div>
+          <div class="pat-reg-field" id="patRegSmsField" style="display:none">
+            <label>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.1 19.79 19.79 0 0 1 1.61 4.49 2 2 0 0 1 3.6 2.27h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.18 6.18l.95-.95a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+              Téléphone <span style="font-size:10px;color:#a855f7;font-weight:700">(SMS 10min avant votre tour)</span>
+            </label>
+            <input type="tel" id="patRegTel" placeholder="Ex : +33612345678" autocomplete="tel" inputmode="tel">
           </div>
           <div class="pat-reg-field" id="patRegDocField" style="display:none">
             <label>
@@ -5804,6 +5835,13 @@ async function openCabinet(code) {
 
   console.log('[ML] openCabinet — code:', code, '| cabinetId résolu:', cabinetId);
 
+  // Afficher champ SMS si activé par le médecin
+  firebase.database().ref('cabinets/' + (cab._resolvedOwnerUid || code) + '/smsEnabled').once('value')
+    .then(function(snap) {
+      var smsField = document.getElementById('patRegSmsField');
+      if (smsField) smsField.style.display = (snap && snap.val() === true) ? 'block' : 'none';
+    }).catch(function(){});
+
   // ── Charger le user owner depuis Firebase si absent de fbUsers ──────────
   if (cabinetId && !fbUsers[cabinetId]) {
     try {
@@ -6348,6 +6386,9 @@ function patRegisterPatient() {
   console.log("PATIENT_CONFIRM_CLICKED");
   const nom   = document.getElementById('patRegName').value.trim();
   const heure = document.getElementById('patRegHeure').value;
+  const telEl = document.getElementById('patRegTel');
+  const tel   = telEl ? telEl.value.trim() : '';
+  if (tel) sessionStorage.setItem('myPatientTel', tel);
   const msg   = document.getElementById('patRegMsg');
   if (!nom)   { msg.textContent = 'Veuillez entrer votre prénom et nom.'; return; }
   if (!heure) { msg.textContent = 'Veuillez indiquer l\'heure de votre rendez-vous.'; return; }
@@ -6400,7 +6441,8 @@ function patRegisterPatient() {
     appointmentTime: heure,
     status:          'waiting',
     statut:          'waiting',
-    createdAt:       Date.now()
+    createdAt:       Date.now(),
+    tel:             tel || ''
   };
 
   const writePath = 'namedPatients/' + selectedDoctorId + '/' + patientId;
@@ -6634,6 +6676,12 @@ function updatePatPersonalInfo(docId, p_total, retardManuel, _unused_dur) {
   }
 
   document.getElementById('patPersonalView').style.display = 'block';
+
+  // Vérifier SMS si téléphone renseigné
+  const _patTel = sessionStorage.getItem('myPatientTel');
+  if (_patTel && typeof mlSmsCheckAndSend === 'function') {
+    mlSmsCheckAndSend(docId, myId, me.nom || me.name || '', _patTel, patientsAvant, attenteRestante);
+  }
 }
 
 // Rendu liste patients nommés côté médecin
@@ -8635,6 +8683,7 @@ async function dmInitSection() {
 
   dmRenderPlanInfo();
   setTimeout(function(){ if(typeof mlCsLoad==="function") mlCsLoad(); }, 400);
+  setTimeout(function(){ if(typeof mlSmsLoadDashboard==="function") mlSmsLoadDashboard(); }, 700);
 
   dmLoadAndRender();
 }
@@ -11996,6 +12045,94 @@ window.checkPromo = function() {
   }
 
 })();
+
+
+/* ═══════════════════════════════════════════════════════════════
+   SMS PREMIUM — Notification 10min avant le passage
+   ═══════════════════════════════════════════════════════════════ */
+
+// Vérifier si le médecin a le SMS activé + abonnement actif
+async function mlSmsIsEnabled(ownerUid) {
+  if (!ownerUid || !window.firebase) return false;
+  try {
+    var snap = await firebase.database().ref('cabinets/' + ownerUid + '/smsEnabled').once('value');
+    return snap && snap.exists() && snap.val() === true;
+  } catch(e) { return false; }
+}
+
+// Envoyer un SMS via le worker Cloudflare
+async function mlSmsSend(to, patientName, minutesLeft) {
+  if (!to || !to.trim()) return false;
+  try {
+    var msg = 'MediLine : Bonjour ' + patientName + ', votre tour arrive dans environ '
+      + minutesLeft + ' minutes. Merci de vous préparer.';
+    var res = await fetch('/api/send-sms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to: to.trim(), message: msg })
+    });
+    var data = await res.json();
+    console.log('[SMS]', data.ok ? 'Envoyé à ' + to : 'Erreur: ' + data.error);
+    return data.ok;
+  } catch(e) {
+    console.warn('[SMS] Erreur réseau:', e.message);
+    return false;
+  }
+}
+
+// Vérifier et envoyer quand patientsAvant <= 1
+var _smsSentFor = {}; // éviter les doublons
+
+async function mlSmsCheckAndSend(doctorId, patientId, patientName, patientTel, patientsAvant, attenteMin) {
+  if (!patientTel || !patientTel.trim()) return;
+  if (_smsSentFor[patientId]) return; // déjà envoyé
+  if (patientsAvant > 1) return; // pas encore le moment
+
+  // Vérifier que le médecin a le SMS activé
+  var smsOk = await mlSmsIsEnabled(doctorId);
+  if (!smsOk) return;
+
+  _smsSentFor[patientId] = true;
+  var minutes = Math.max(1, Math.round(attenteMin));
+  await mlSmsSend(patientTel, patientName || 'Patient', minutes);
+}
+
+window.mlSmsCheckAndSend = mlSmsCheckAndSend;
+window.mlSmsSend = mlSmsSend;
+
+// Charger état SMS toggle dans le dashboard
+async function mlSmsLoadDashboard() {
+  var u = firebase.auth().currentUser;
+  var uid = u ? u.uid : localStorage.getItem('ml_session');
+  if (!uid) return;
+
+  // Afficher le toggle uniquement si abonnement actif (pas trial ou inactive)
+  var box = document.getElementById('mlSmsBox');
+  if (!box) return;
+
+  // Vérifier statut Stripe
+  try {
+    var userSnap = await firebase.database().ref('users/' + uid).once('value');
+    var userData = userSnap && userSnap.exists() ? userSnap.val() : {};
+    var status = userData.subscriptionStatus || userData.stripeStatus || 'inactive';
+    var hasPaid = status === 'active' || status === 'trialing' || userData.hasPaid;
+
+    if (hasPaid) {
+      box.style.display = 'block';
+      // Charger l'état actuel
+      var smsSnap = await firebase.database().ref('cabinets/' + uid + '/smsEnabled').once('value');
+      var tog = document.getElementById('mlSmsTog');
+      var statusEl = document.getElementById('mlSmsStatus');
+      var enabled = smsSnap && smsSnap.exists() && smsSnap.val() === true;
+      if (tog) tog.checked = enabled;
+      if (statusEl) statusEl.textContent = enabled
+        ? 'Actif — Les patients seront prévenus 10min avant leur tour'
+        : 'Inactif';
+    }
+  } catch(e) {}
+}
+
+window.mlSmsLoadDashboard = mlSmsLoadDashboard;
 
 </script>
 
