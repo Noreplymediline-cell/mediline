@@ -5569,6 +5569,8 @@ async function submitCode() {
         const cs = await firebase.database().ref('cabinets/' + ownerUid).get().catch(() => null);
         if (cs && cs.exists()) fbCabs[ownerUid] = cs.val();
       }
+      // Stocker le mapping code → ownerUid pour openCabinet
+      if (!fbCabs[code]) fbCabs[code] = Object.assign({}, fbCabs[ownerUid] || {}, { ownerUid: ownerUid, _resolvedOwnerUid: ownerUid });
     }
   } catch(e) { console.warn('[ML] submitCode scan:', e); }
 
@@ -5798,7 +5800,7 @@ async function openCabinet(code) {
 
   // ── Résoudre l'UID du propriétaire ──────────────────────────────────────
   // Le cabinetId = ownerUid (ils sont toujours égaux à la création)
-  const cabinetId = cab.ownerUid || cab.cabinetId || cab.code || code;
+  const cabinetId = cab._resolvedOwnerUid || cab.ownerUid || cab.cabinetId || cab.code || code;
 
   console.log('[ML] openCabinet — code:', code, '| cabinetId résolu:', cabinetId);
 
