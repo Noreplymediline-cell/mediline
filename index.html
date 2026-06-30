@@ -6697,12 +6697,14 @@ function listenNamedPatients(doctorId) {
 
 async function renderDoc(name) {
   // Sync Firebase ciblée → lecture directe sur users/{name} (pas de lecture globale)
+  let _fbUserForKpi = null;
   try {
     const fbUserSnap = await Promise.race([
       firebase.database().ref('users/' + name).get(),
       new Promise((_, rej) => setTimeout(() => rej(), 5000))
     ]);
     const fbUser = fbUserSnap && fbUserSnap.exists() ? fbUserSnap.val() : null;
+    _fbUserForKpi = fbUser;
     if (fbUser) {
       if (fbUser.queue) {
         localStorage.setItem(name + '_p', fbUser.queue.p ?? 0);
@@ -6729,8 +6731,10 @@ async function renderDoc(name) {
     }
   } catch(e) { /* fallback localStorage */ }
 
-  const p_global = +localStorage.getItem(name + '_p') || 0;
-  const r = +localStorage.getItem(name + '_r') || 0;
+  // Lire p/r depuis fbUser.queue (déjà chargé ci-dessus) plutôt que localStorage
+  const _q = (_fbUserForKpi && _fbUserForKpi.queue) || {};
+  const p_global = Math.max(0, Number(_q.p ?? _q.patients ?? 0));
+  const r = Math.max(0, Number(_q.r ?? _q.retard ?? 0));
 
   // Compter les patients nommés EN ATTENTE et VALIDES pour ce médecin
   const namedKey = 'namedPatients_' + name;
@@ -6743,14 +6747,13 @@ async function renderDoc(name) {
   // CALCUL TEMPS RESTANT via getRemainingWait — prend en compte startedAt
   // Fonctionne même si le médecin est déconnecté depuis des heures
   let w;
-  const totalMinStored   = localStorage.getItem(name + '_totalMinutes');
-  const startedAtStored  = localStorage.getItem(name + '_startedAt') ?? localStorage.getItem(name + '_ts');
-  if (totalMinStored !== null) {
-    const fakeQ = { totalMinutes: +totalMinStored, startedAt: startedAtStored ? +startedAtStored : Date.now() };
+  if (_q.totalMinutes !== undefined || _q.total !== undefined) {
+    const fakeQ = {
+      totalMinutes: _q.totalMinutes ?? _q.total ?? 0,
+      startedAt: _q.startedAt ?? _q.ts ?? Date.now()
+    };
     w = getRemainingWait(fakeQ);
-    console.log('RENDERdoc_REMAINING', name, w, '(base:', totalMinStored, 'startedAt:', startedAtStored, ')');
   } else {
-    // Pas encore de données Firebase → "Chargement…"
     w = null;
   }
 
