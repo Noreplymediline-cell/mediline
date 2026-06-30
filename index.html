@@ -1114,48 +1114,6 @@ textarea.field-inp{resize:none;min-height:80px;line-height:1.55;margin-bottom:0}
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script>
-/* ═══════════════════════════════════════════════════════════════
-   MEDILINE — Proxy localStorage
-   Redirige vers sessionStorage ou mémoire selon la clé
-   Aucune donnée persistée sur l'appareil
-   ═══════════════════════════════════════════════════════════════ */
-(function() {
-  // Clés qui vont en sessionStorage (durée de la session navigateur)
-  var SESSION = { 'ml_session':1, 'myPatientId':1, 'myDoctorId':1 };
-
-  // Clés à ignorer (caches Firebase — on lit Firebase directement)
-  var IGNORE_EXACT = { 'users':1, 'cabinets':1 };
-  var IGNORE_PREFIX = ['namedPatients_','myPatient_','reviews_',
-                       '_queueFinal','_ai_history','_ai_delays'];
-  var IGNORE_SUFFIX = ['_p','_r','_ts','_startedAt','_totalMinutes','_total'];
-
-  function ignored(key) {
-    if (!key) return false;
-    var k = String(key);
-    if (IGNORE_EXACT[k]) return true;
-    for (var i=0;i<IGNORE_PREFIX.length;i++)
-      if (k.indexOf(IGNORE_PREFIX[i])>=0) return true;
-    for (var j=0;j<IGNORE_SUFFIX.length;j++)
-      if (k.endsWith(IGNORE_SUFFIX[j])) return true;
-    return false;
-  }
-
-  var ss = window.sessionStorage;
-  var proxy = {
-    getItem:    function(k){ return ignored(k)?null:ss.getItem(k); },
-    setItem:    function(k,v){ if(!ignored(k)) ss.setItem(k,v); },
-    removeItem: function(k){ if(!ignored(k)) ss.removeItem(k); },
-    clear:      function(){ ss.clear(); },
-    key:        function(i){ return ss.key(i); },
-    get length(){ return ss.length; }
-  };
-
-  try {
-    Object.defineProperty(window,'localStorage',{get:function(){return proxy;},configurable:true});
-    console.log('[ML] Proxy localStorage actif — sessionStorage uniquement');
-  } catch(e) {}
-})();
-
 (function() {
   var cfg = {
     apiKey: "AIzaSyBLc4xKsBshDGQFQI-7dYScEsdqKxJGNIQ",
@@ -5542,37 +5500,24 @@ async function submitCode() {
     fbUsers = JSON.parse(localStorage.getItem('users') || '{}');
   } catch(e) {}
 
-  // Scan Firebase complet : trouver le user dont le code correspond
+  // Tentative de résolution directe Firebase (lecture ciblée sur le code saisi)
   try {
-    const allSnap = await firebase.database().ref('users').get();
-    if (allSnap && allSnap.exists()) {
-      allSnap.forEach(function(child) {
-        const uid = child.key;
-        const u   = child.val();
-        const pc  = (u.publicCode  || '').replace(/-/g,'').toUpperCase();
-        const dc  = (u.doctorCode  || '').replace(/-/g,'').toUpperCase();
-        const cc  = (u.cabinetCode || '').replace(/-/g,'').toUpperCase();
-        const gen = (typeof generatePublicCode === 'function') ? generatePublicCode(uid).replace(/-/g,'').toUpperCase() : '';
-        if (pc === codeNorm || dc === codeNorm || cc === codeNorm || gen === codeNorm) {
-          fbUsers[uid] = u;
-          // Charger son cabinet
-          const ownerUid = u.billingOwner || u.invitedBy || u.addedBy || uid;
-          window._mlOwnerUid = ownerUid;
-        }
-      });
-    }
-    // Charger les cabinets des users trouvés
-    for (const uid of Object.keys(fbUsers)) {
-      const u = fbUsers[uid];
-      const ownerUid = u.billingOwner || u.invitedBy || u.addedBy || uid;
-      if (!fbCabs[ownerUid]) {
-        const cs = await firebase.database().ref('cabinets/' + ownerUid).get().catch(() => null);
-        if (cs && cs.exists()) fbCabs[ownerUid] = cs.val();
+    const [cabSnap, userSnap] = await Promise.all([
+      firebase.database().ref('cabinets/' + code).get().catch(() => null),
+      firebase.database().ref('users/' + code).get().catch(() => null)
+    ]);
+    if (cabSnap && cabSnap.exists()) { fbCabs[code] = cabSnap.val(); }
+    if (userSnap && userSnap.exists()) {
+      const u = userSnap.val();
+      fbUsers[code] = u;
+      const ownerUid = u.billingOwner || u.invitedBy || u.addedBy || code;
+      window._mlOwnerUid = ownerUid;
+      if (ownerUid !== code) {
+        const ownerCabSnap = await firebase.database().ref('cabinets/' + ownerUid).get().catch(() => null);
+        if (ownerCabSnap && ownerCabSnap.exists()) fbCabs[ownerUid] = ownerCabSnap.val();
       }
-      // Stocker le mapping code → ownerUid pour openCabinet
-      if (!fbCabs[code]) fbCabs[code] = Object.assign({}, fbCabs[ownerUid] || {}, { ownerUid: ownerUid, _resolvedOwnerUid: ownerUid });
     }
-  } catch(e) { console.warn('[ML] submitCode scan:', e); }
+  } catch(e) { console.warn('[ML] submitCode direct lookup:', e); }
 
   const cabs  = fbCabs;
   const users = fbUsers;
@@ -5800,29 +5745,9 @@ async function openCabinet(code) {
 
   // ── Résoudre l'UID du propriétaire ──────────────────────────────────────
   // Le cabinetId = ownerUid (ils sont toujours égaux à la création)
-  const cabinetId = cab._resolvedOwnerUid || cab.ownerUid || cab.cabinetId || cab.code || code;
+  const cabinetId = cab.ownerUid || cab.cabinetId || cab.code || code;
 
   console.log('[ML] openCabinet — code:', code, '| cabinetId résolu:', cabinetId);
-
-  // ── Charger le user owner depuis Firebase si absent de fbUsers ──────────
-  if (cabinetId && !fbUsers[cabinetId]) {
-    try {
-      const ownerSnap = await firebase.database().ref('users/' + cabinetId).get();
-      if (ownerSnap && ownerSnap.exists()) {
-        fbUsers[cabinetId] = ownerSnap.val();
-        console.log('[ML] Owner chargé depuis Firebase:', cabinetId);
-      }
-    } catch(e) {}
-  }
-  // Enrichir le cab avec name/adresse depuis fbUsers si manquant
-  const _ownerU = fbUsers[cabinetId] || {};
-  if (!cab.name)    cab.name    = _ownerU.cabinet || _ownerU.name    || '';
-  if (!cab.adresse) cab.adresse = _ownerU.adresse || _ownerU.address || '';
-  // Mettre à jour l'affichage nom/adresse
-  const _nameEl2 = document.getElementById('cabinetName');
-  const _addrEl2 = document.getElementById('cabinetAddr');
-  if (_nameEl2 && cab.name) _nameEl2.textContent = cab.name;
-  if (_addrEl2 && cab.adresse) _addrEl2.textContent = '📍 ' + cab.adresse;
 
   // ── Récupérer les médecins invités depuis cabinets/{cabinetId}/doctors ──
   let cabinetDoctorsNode = {};
@@ -6771,64 +6696,84 @@ function listenNamedPatients(doctorId) {
 }
 
 async function renderDoc(name) {
-  // Tout en mémoire — zéro localStorage
-  if (!window._renderDocCache) window._renderDocCache = {};
-  let fbUser = null, cab = { name: '' };
-
+  // Sync Firebase ciblée → lecture directe sur users/{name} (pas de lecture globale)
   try {
     const fbUserSnap = await Promise.race([
       firebase.database().ref('users/' + name).get(),
       new Promise((_, rej) => setTimeout(() => rej(), 5000))
     ]);
-    fbUser = fbUserSnap && fbUserSnap.exists() ? fbUserSnap.val() : null;
-
+    const fbUser = fbUserSnap && fbUserSnap.exists() ? fbUserSnap.val() : null;
     if (fbUser) {
-      window._renderDocCache[name] = fbUser;
+      if (fbUser.queue) {
+        localStorage.setItem(name + '_p', fbUser.queue.p ?? 0);
+        localStorage.setItem(name + '_r', fbUser.queue.r ?? 0);
+        localStorage.setItem(name + '_ts', fbUser.queue.ts ?? Date.now());
+        if (fbUser.queue.startedAt    !== undefined) localStorage.setItem(name + '_startedAt',    fbUser.queue.startedAt);
+        if (fbUser.queue.totalMinutes !== undefined) localStorage.setItem(name + '_totalMinutes', fbUser.queue.totalMinutes);
+        else if (fbUser.queue.total   !== undefined) localStorage.setItem(name + '_totalMinutes', fbUser.queue.total);
+      }
+      if (fbUser.ai_history) {
+        localStorage.setItem(name + '_ai_history', JSON.stringify(fbUser.ai_history));
+      }
+      // Mettre à jour le cache local
+      const cached = JSON.parse(localStorage.getItem('users') || '{}');
+      cached[name] = fbUser;
+      try { localStorage.setItem('users', JSON.stringify(cached)); } catch(e) {}
+      // Charger le cabinet si besoin
       const ownerUid = fbUser.billingOwner || fbUser.invitedBy || fbUser.addedBy || name;
-      const cabSnap = await firebase.database().ref('cabinets/' + ownerUid).get().catch(() => null);
-      if (cabSnap && cabSnap.exists()) {
-        cab = cabSnap.val();
-        if (!cab.name) cab.name = fbUser.cabinet || fbUser.name || '';
+      const cachedCabs = JSON.parse(localStorage.getItem('cabinets') || '{}');
+      if (!cachedCabs[ownerUid]) {
+        const cabSnap = await firebase.database().ref('cabinets/' + ownerUid).get().catch(() => null);
+        if (cabSnap && cabSnap.exists()) { cachedCabs[ownerUid] = cabSnap.val(); try { localStorage.setItem('cabinets', JSON.stringify(cachedCabs)); } catch(e) {} }
       }
     }
-  } catch(e) {
-    // Fallback : cache mémoire de la dernière lecture réussie
-    fbUser = window._renderDocCache[name] || null;
-  }
+  } catch(e) { /* fallback localStorage */ }
 
-  const q = (fbUser && fbUser.queue) || {};
-  const p_global = Math.max(0, Number(q.p ?? q.patients ?? 0));
-  const r = Math.max(0, Number(q.r ?? q.retard ?? 0));
+  const p_global = +localStorage.getItem(name + '_p') || 0;
+  const r = +localStorage.getItem(name + '_r') || 0;
 
-  // Patients nommés en attente (cache mémoire, peuplé par listenNamedPatients)
-  const namedList = (window._namedPatsCache && window._namedPatsCache[name]) || [];
+  // Compter les patients nommés EN ATTENTE et VALIDES pour ce médecin
+  const namedKey = 'namedPatients_' + name;
+  const namedList = JSON.parse(localStorage.getItem(namedKey) || '[]');
   const namedActifs = namedList.filter(isPatientStillValid).length;
+
+  // p effectif = max entre le compteur médecin et la liste nommée
   const p = Math.max(p_global, namedActifs);
 
-  // Temps restant
-  let w = null;
-  if (q.totalMinutes !== undefined || q.total !== undefined) {
-    const fakeQ = {
-      totalMinutes: q.totalMinutes ?? q.total ?? 0,
-      startedAt: q.startedAt ?? q.ts ?? Date.now()
-    };
+  // CALCUL TEMPS RESTANT via getRemainingWait — prend en compte startedAt
+  // Fonctionne même si le médecin est déconnecté depuis des heures
+  let w;
+  const totalMinStored   = localStorage.getItem(name + '_totalMinutes');
+  const startedAtStored  = localStorage.getItem(name + '_startedAt') ?? localStorage.getItem(name + '_ts');
+  if (totalMinStored !== null) {
+    const fakeQ = { totalMinutes: +totalMinStored, startedAt: startedAtStored ? +startedAtStored : Date.now() };
     w = getRemainingWait(fakeQ);
+    console.log('RENDERdoc_REMAINING', name, w, '(base:', totalMinStored, 'startedAt:', startedAtStored, ')');
+  } else {
+    // Pas encore de données Firebase → "Chargement…"
+    w = null;
   }
 
-  document.getElementById('docName').textContent = (fbUser && (fbUser.displayName || fbUser.name)) || '—';
-  document.getElementById('heroCabinet').textContent = cab.name || '';
+  const users = JSON.parse(localStorage.getItem('users')) || {};
+  const cabs = JSON.parse(localStorage.getItem('cabinets')) || {};
+  const user = users[name] || Object.values(users).find(u => u.doctorId === name) || null;
+  const cab = user && cabs[user.cabinetCode] || { name: '' };
+  document.getElementById('docName').textContent = (user && user.displayName) || name;
+  document.getElementById('heroCabinet').textContent = cab.name;
 
+  // Écriture #waitTime uniquement via setPatientWaitTime — jamais directement
   setPatientWaitTime(w, 'renderDoc');
 
   document.getElementById('patientsInfo').textContent = p;
   document.getElementById('retardInfo').textContent = r > 0 ? r + ' min' : '0 min';
 
-  const gl = (fbUser && fbUser.googleLink) || '';
+  const gl = user && user.googleLink || '';
   const gb = document.getElementById('googleReviewBtn');
   if (gl) { gb.href = gl; gb.classList.remove('hidden'); } else gb.classList.add('hidden');
   renderReviews(name).catch(function(){});
   patTs();
 
+  // Recalculer info personnelle si patient enregistré
   updatePatPersonalInfo(name, p, r, PAT_DUREE);
 }
 
